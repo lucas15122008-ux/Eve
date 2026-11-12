@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import app.eve.assistente.ai.AiException
 import app.eve.assistente.ai.ChatMessage
 import app.eve.assistente.ai.EveSettings
+import app.eve.assistente.ai.ProviderId
 import app.eve.assistente.ai.Role
 import app.eve.assistente.voice.VoiceInput
 import app.eve.assistente.voice.VoiceOutput
@@ -128,9 +129,8 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         error = null
     }
 
-    fun saveSettings(apiKey: String, model: String, name: String) {
-        settings.geminiApiKey = apiKey
-        settings.geminiModel = model
+    fun saveSettings(provider: ProviderId, apiKey: String, model: String, name: String) {
+        settings.save(provider, apiKey, model)
         settings.userName = name
         showSettings = false
         error = null

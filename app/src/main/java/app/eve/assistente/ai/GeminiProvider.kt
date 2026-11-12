@@ -78,11 +78,16 @@ class GeminiProvider(
         return reply
     }
 
-    private fun friendlyError(code: Int, apiMessage: String?): String = when (code) {
-        400, 403 -> "A chave da API parece inválida. Confira nas configurações."
-        404 -> "O modelo \"$model\" não foi encontrado. Confira o nome nas configurações."
-        429 -> "Limite de uso da IA atingido por agora. Espere um pouco e tente de novo."
-        in 500..599 -> "O servidor da IA está com problema. Tente de novo em instantes."
-        else -> "Erro da IA ($code)" + (apiMessage?.let { ": $it" } ?: "")
+    private fun friendlyError(code: Int, apiMessage: String?): String {
+        val keyProblem = apiMessage?.contains("API key", ignoreCase = true) == true
+        val base = when {
+            keyProblem || code == 401 || code == 403 ->
+                "O Google não aceitou a chave. Confira se é uma chave do Google AI Studio (começa com AIza)."
+            code == 404 -> "O modelo \"$model\" não foi encontrado. Confira o nome nas configurações."
+            code == 429 -> "Limite grátis do Gemini atingido por agora. Espere um pouco e tente de novo."
+            code in 500..599 -> "O servidor do Google está com problema. Tente de novo em instantes."
+            else -> "Erro do Gemini ($code)."
+        }
+        return if (apiMessage != null) "$base\nDetalhe: $apiMessage" else base
     }
 }

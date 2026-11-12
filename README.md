@@ -28,6 +28,13 @@ Cada vez que o código muda na branch `main`, o GitHub gera uma versão nova aut
 
 A chave fica guardada só no seu celular. Nunca coloque ela no código ou no GitHub.
 
+## Ou usar a OpenRouter (modelos grátis)
+
+1. Crie uma chave em **https://openrouter.ai/keys** (começa com `sk-or-`).
+2. Nas configurações da Eve, escolha **OpenRouter** e cole a chave.
+3. O modelo padrão é `nvidia/nemotron-3.5-super-vl:free` (grátis, aceita imagem).
+4. Se der erro de modelo não disponível, ative os modelos grátis em **https://openrouter.ai/settings/privacy**.
+
 > No plano grátis do Gemini, o Google pode usar as conversas para melhorar os produtos dele.
 > Para usar com dados sensíveis (agenda, vendas), o ideal é passar para um plano pago.
 
