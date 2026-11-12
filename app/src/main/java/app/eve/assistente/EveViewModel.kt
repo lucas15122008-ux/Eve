@@ -153,6 +153,14 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         error = null
     }
 
+    /** Faz uma pergunta por texto, sem usar o microfone (usado nos testes do emulador). */
+    fun askText(text: String) {
+        if (state != EveState.IDLE || text.isBlank()) return
+        error = null
+        heard = text
+        ask(text)
+    }
+
     fun onMicPermissionDenied() {
         error = "Sem a permissão do microfone eu não consigo te ouvir."
     }

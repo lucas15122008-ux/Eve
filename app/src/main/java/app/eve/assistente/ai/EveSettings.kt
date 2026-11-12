@@ -5,10 +5,16 @@ import android.content.Context
 /** Os provedores de IA que a Eve sabe usar. */
 enum class ProviderId(val key: String, val label: String, val defaultModel: String, val keyHint: String) {
     GEMINI("gemini", "Google Gemini", "gemini-2.5-flash-lite", "aistudio.google.com/apikey"),
-    OPENROUTER("openrouter", "OpenRouter", "nvidia/nemotron-3.5-super-vl:free", "openrouter.ai/keys");
+    OPENROUTER("openrouter", "OpenRouter", "nvidia/nemotron-3.5-super-vl:free", "openrouter.ai/keys"),
+
+    /** Só para os testes automáticos no emulador: responde sem internet. Não aparece nas configurações. */
+    DEMO("demo", "Demonstração", "demo", "");
 
     companion object {
         fun from(key: String?) = entries.firstOrNull { it.key == key } ?: GEMINI
+
+        /** Os que aparecem nas configurações. */
+        val visible get() = entries.filter { it != DEMO }
     }
 }
 
@@ -52,6 +58,7 @@ class EveSettings(context: Context) {
         return when (p) {
             ProviderId.GEMINI -> GeminiProvider(apiKey = apiKey(p), model = model(p))
             ProviderId.OPENROUTER -> OpenRouterProvider(apiKey = apiKey(p), model = model(p))
+            ProviderId.DEMO -> DemoProvider()
         }
     }
 

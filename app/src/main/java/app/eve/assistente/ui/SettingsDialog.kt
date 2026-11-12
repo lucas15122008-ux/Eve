@@ -54,7 +54,7 @@ fun SettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text("Qual IA a Eve usa:")
-                ProviderId.entries.forEach { p ->
+                ProviderId.visible.forEach { p ->
                     Row(
                         Modifier
                             .fillMaxWidth()
