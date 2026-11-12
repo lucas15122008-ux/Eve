@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ReminderScheduler.ensureChannel(this)
         handleTestIntent(intent)
+        handleLoginReturn(intent)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(background = Background, surface = Color(0xFF141A24))) {
                 EveScreen(vm, hasMicPermission = {
@@ -82,6 +83,16 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleTestIntent(intent)
+        handleLoginReturn(intent)
+    }
+
+    /** O navegador voltou do login do Mercado Livre. */
+    private fun handleLoginReturn(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "app.eve.assistente" && uri.host == "oauth") {
+            intent.data = null
+            vm.finishMlLogin(uri)
+        }
     }
 
     /**
@@ -236,6 +247,10 @@ private fun EveScreen(vm: EveViewModel, hasMicPermission: () -> Boolean) {
             settings = vm.settings,
             canDismiss = vm.settings.isConfigured,
             onSave = vm::saveSettings,
+            mlLoggedIn = vm.mlLoggedIn,
+            mlBusy = vm.mlBusy,
+            onMlLogin = vm::startMlLogin,
+            onMlLogout = vm::mlLogout,
             onDismiss = { vm.showSettings = false },
             onClearConversation = vm::clearConversation,
         )

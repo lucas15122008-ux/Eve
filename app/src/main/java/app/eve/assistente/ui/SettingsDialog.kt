@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -31,7 +32,11 @@ import app.eve.assistente.ai.ProviderId
 fun SettingsDialog(
     settings: EveSettings,
     canDismiss: Boolean,
-    onSave: (provider: ProviderId, key: String, model: String, name: String, speechRate: Float) -> Unit,
+    onSave: (provider: ProviderId, key: String, model: String, name: String, speechRate: Float, mlUrl: String) -> Unit,
+    mlLoggedIn: Boolean,
+    mlBusy: Boolean,
+    onMlLogin: (url: String) -> Unit,
+    onMlLogout: () -> Unit,
     onDismiss: () -> Unit,
     onClearConversation: () -> Unit,
 ) {
@@ -40,6 +45,8 @@ fun SettingsDialog(
     var model by remember { mutableStateOf(settings.model(provider)) }
     var name by remember { mutableStateOf(settings.userName) }
     var rate by remember { mutableStateOf(settings.speechRate) }
+    var mlUrl by remember { mutableStateOf(settings.mlServerUrl) }
+    val mlUrlOk = mlUrl.isBlank() || mlUrl.trim().startsWith("https://")
 
     fun choose(p: ProviderId) {
         provider = p
@@ -97,11 +104,49 @@ fun SettingsDialog(
                     value = rate, onValueChange = { rate = it },
                     valueRange = 0.6f..1.2f, steps = 11,
                 )
+
+                val urlHint: (@Composable () -> Unit)? =
+                    if (mlUrlOk) null else { { Text("O endereço precisa começar com https://") } }
+                Text("Mercado Livre", style = MaterialTheme.typography.titleSmall)
+                Text("Endereço do servidor JR Mercado Livre (o mesmo conector do Claude). Fica guardado só neste celular.")
+                OutlinedTextField(
+                    value = mlUrl, onValueChange = { mlUrl = it },
+                    label = { Text("Endereço do servidor (https://...)") },
+                    singleLine = true,
+                    isError = !mlUrlOk,
+                    supportingText = urlHint,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                val sameUrl = mlUrl.trim() == settings.mlServerUrl
+                Text(
+                    when {
+                        mlBusy -> "Conectando…"
+                        mlLoggedIn && sameUrl -> "Conectada ao Mercado Livre ✓"
+                        else -> "Ainda não entrou no servidor."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onMlLogin(mlUrl.trim()) },
+                        enabled = !mlBusy && mlUrl.trim().startsWith("https://"),
+                    ) { Text(if (mlLoggedIn && sameUrl) "Entrar de novo" else "Entrar no Mercado Livre") }
+                    if (mlLoggedIn && sameUrl) {
+                        TextButton(onClick = onMlLogout, enabled = !mlBusy) { Text("Sair") }
+                    }
+                }
+                Text(
+                    "O login abre no navegador, igual ao que você fez no Claude, e depois volta para a Eve.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 TextButton(onClick = onClearConversation) { Text("Apagar a conversa atual") }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(provider, key, model, name, rate) }, enabled = key.isNotBlank()) { Text("Salvar") }
+            TextButton(
+                onClick = { onSave(provider, key, model, name, rate, mlUrl) },
+                enabled = key.isNotBlank() && mlUrlOk,
+            ) { Text("Salvar") }
         },
         dismissButton = {
             if (canDismiss) TextButton(onClick = onDismiss) { Text("Cancelar") }

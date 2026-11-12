@@ -40,7 +40,7 @@ jobs:
           EVE_KEY_PASSWORD: ${{ secrets.EVE_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug testDebugUnitTest --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk Eve.apk
 
       - uses: actions/upload-artifact@v4

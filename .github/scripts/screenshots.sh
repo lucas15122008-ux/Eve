@@ -36,6 +36,23 @@ shot 08-deitado-agenda 7
 rotate 0
 shot 09-em-pe-de-novo 6
 
+# Fase 3: vendas do Mercado Livre (vendas de exemplo, nada real).
+ask "quanto eu vendi essa semana"
+shot 12-vendas 8
+adb shell input swipe 540 1900 540 900 400
+shot 13-vendas-rolado 2
+rotate 1
+shot 14-deitado-vendas 6
+rotate 0
+sleep 4
+# Configurações, com os campos do Mercado Livre.
+adb shell input tap 996 212
+shot 15-configuracoes 3
+adb shell input swipe 540 1700 540 700 400
+shot 16-configuracoes-ml 2
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
 # De novo, com as animações do sistema desligadas (como "Remover animações" do celular).
 adb shell settings put global animator_duration_scale 0
 adb shell settings put global transition_animation_scale 0
