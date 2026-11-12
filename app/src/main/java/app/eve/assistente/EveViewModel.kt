@@ -14,13 +14,16 @@ import app.eve.assistente.ai.ProviderId
 import app.eve.assistente.ai.Role
 import app.eve.assistente.assistant.EveBrain
 import app.eve.assistente.assistant.EveCard
+import app.eve.assistente.ui.EveMood
 import app.eve.assistente.voice.VoiceInput
 import app.eve.assistente.voice.VoiceOutput
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalTime
 
 enum class EveState { IDLE, LISTENING, THINKING, SPEAKING }
 
@@ -48,11 +51,43 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
     var card by mutableStateOf<EveCard?>(null)
         private set
 
+    /** O humor do rosto da Eve (surpresa, triste...). Ouvindo e pensando sempre têm a mesma cara. */
+    var mood by mutableStateOf(EveMood.NORMAL)
+        private set
+    private var lastActivity = System.currentTimeMillis()
+    private var testMood = false
+
     private val history = mutableListOf<ChatMessage>()
     private var thinkingJob: Job? = null
 
+    init {
+        // Sono: parada há 2 minutos, ou de noite (22h às 6h), a Eve fica sonolenta.
+        // Um humor "de momento" (surpresa, piscadinha...) volta ao normal depois de 1 minuto.
+        viewModelScope.launch {
+            while (true) {
+                delay(15_000)
+                if (state != EveState.IDLE || testMood) continue
+                val idleMs = System.currentTimeMillis() - lastActivity
+                val hour = LocalTime.now().hour
+                val night = hour >= 22 || hour < 6
+                if (idleMs > 120_000 || (night && idleMs > 20_000)) {
+                    if (mood == EveMood.NORMAL || idleMs > 60_000) mood = EveMood.SONOLENTA
+                } else if (idleMs > 60_000 && mood != EveMood.NORMAL && mood != EveMood.TRISTE) {
+                    mood = EveMood.NORMAL
+                }
+            }
+        }
+    }
+
+    private fun touch() {
+        lastActivity = System.currentTimeMillis()
+        testMood = false
+    }
+
     /** Toque na Eve: começa a ouvir, ou interrompe o que ela estiver fazendo. */
     fun onOrbTapped() {
+        touch()
+        mood = EveMood.NORMAL
         when (state) {
             EveState.IDLE -> startListening()
             EveState.LISTENING -> { voiceIn.stop(); state = EveState.IDLE; volume = 0f }
@@ -87,6 +122,8 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
                 volume = 0f
                 voiceIn.stop()
                 error = message
+                touch()
+                mood = if (message.startsWith("Não entendi") || message.startsWith("Não ouvi")) EveMood.CONFUSA else EveMood.TRISTE
                 state = EveState.IDLE
             }
         })
@@ -105,6 +142,8 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
                 history += ChatMessage(Role.EVE, result.rawForHistory)
                 reply = result.speech
                 card = result.card
+                mood = EveMood.fromId(result.mood) ?: EveMood.NORMAL
+                touch()
                 state = EveState.SPEAKING
                 voiceOut.speak(result.speech) {
                     if (state == EveState.SPEAKING) state = EveState.IDLE
@@ -119,6 +158,8 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
                     is java.io.IOException -> "Sem conexão com a internet."
                     else -> "Algo deu errado: ${e.message}"
                 }
+                mood = EveMood.TRISTE
+                touch()
                 state = EveState.IDLE
             }
         }
@@ -156,9 +197,18 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
     /** Faz uma pergunta por texto, sem usar o microfone (usado nos testes do emulador). */
     fun askText(text: String) {
         if (state != EveState.IDLE || text.isBlank()) return
+        touch()
+        mood = EveMood.NORMAL
         error = null
         heard = text
         ask(text)
+    }
+
+    /** Mostra um humor direto, sem IA (usado nos prints do emulador). */
+    fun setTestMood(id: String) {
+        mood = EveMood.fromId(id) ?: return
+        lastActivity = System.currentTimeMillis()
+        testMood = true
     }
 
     fun onMicPermissionDenied() {
