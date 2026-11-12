@@ -138,9 +138,7 @@ private fun EveScreen(vm: EveViewModel, hasMicPermission: () -> Boolean) {
 
     if (vm.showSettings) {
         SettingsDialog(
-            initialKey = vm.settings.geminiApiKey,
-            initialModel = vm.settings.geminiModel,
-            initialName = vm.settings.userName,
+            settings = vm.settings,
             canDismiss = vm.settings.isConfigured,
             onSave = vm::saveSettings,
             onDismiss = { vm.showSettings = false },
