@@ -92,10 +92,13 @@ class MainActivity : ComponentActivity() {
         if (vm.settings.provider != ProviderId.DEMO) return
         intent?.getStringExtra(EXTRA_TEST_QUESTION)?.let { vm.askText(it) }
         intent?.removeExtra(EXTRA_TEST_QUESTION)
+        intent?.getStringExtra(EXTRA_TEST_MOOD)?.let { vm.setTestMood(it) }
+        intent?.removeExtra(EXTRA_TEST_MOOD)
     }
 
     companion object {
         const val EXTRA_TEST_QUESTION = "eve_teste_pergunta"
+        const val EXTRA_TEST_MOOD = "eve_teste_humor"
     }
 }
 
@@ -160,6 +163,7 @@ private fun EveScreen(vm: EveViewModel, hasMicPermission: () -> Boolean) {
             EveAvatar(
                 state = vm.state,
                 volume = vm.volume,
+                mood = vm.mood,
                 onClick = onEveTapped,
                 modifier = Modifier
                     .align(BiasAlignment(biasX, biasY))

@@ -21,7 +21,7 @@ class DemoProvider : AiProvider {
                 val total = Regex("""Total: (.+?)\.(?: Ticket|\n|$)""").find(last)?.groupValues?.get(1) ?: "algumas vendas"
                 val top = Regex("""1\) \d+ un\. ([^(]+)\(""").find(last)?.groupValues?.get(1)?.trim()
                 val fala = "Nos últimos 7 dias foram $total." + (top?.let { " O que mais saiu foi $it." } ?: "")
-                JSONObject().put("fala", fala).put("acoes", org.json.JSONArray()).toString()
+                JSONObject().put("fala", fala).put("humor", "animada").put("acoes", org.json.JSONArray()).toString()
             }
             "venda" in question || "vendi" in question ->
                 """{"fala": "Vou ver suas vendas.", "acoes": [{"tipo": "mostrar_vendas", "desde": "${today.minusDays(6)}", "ate": "$today"}]}"""
