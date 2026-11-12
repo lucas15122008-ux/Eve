@@ -52,20 +52,32 @@ jobs:
         run: |
           set -e
           [ -d screens ] || exit 0
-          dest=$(mktemp -d)
-          cp -r screens/. "$dest/"
           git config user.name "eve-ci"
           git config user.email "eve-ci@users.noreply.github.com"
-          git fetch origin ci-screenshots || true
-          git checkout --orphan ci-screenshots-tmp
-          git rm -rf -q . || true
-          rm -rf ./* .github || true
           dir="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          mkdir -p "$dir"
-          cp -r "$dest/." "$dir/"
-          git add "$dir"
-          git commit -q -m "Prints de ${dir} (${GITHUB_SHA::7})"
-          git push -f origin HEAD:refs/heads/ci-screenshots
+          repo="$PWD"
+          pub=$(mktemp -d)
+          # Cada branch tem a sua pasta. Mantém as pastas dos outros branches (antes um apagava o outro)
+          # e guarda tudo num commit só, para o repositório não crescer a cada rodada.
+          for i in 1 2 3 4 5; do
+            old=""
+            if git fetch -q origin +refs/heads/ci-screenshots:refs/remotes/origin/ci-screenshots; then
+              old=$(git rev-parse refs/remotes/origin/ci-screenshots)
+            fi
+            rm -rf "$pub" && mkdir -p "$pub"
+            if [ -n "$old" ]; then git archive "$old" | tar -x -C "$pub"; fi
+            rm -rf "$pub/$dir" && mkdir -p "$pub/$dir"
+            cp -r screens/. "$pub/$dir/"
+            idx=$(mktemp -u)
+            tree=$(cd "$pub" && GIT_DIR="$repo/.git" GIT_WORK_TREE="$pub" GIT_INDEX_FILE="$idx" git add -A . \
+              && GIT_DIR="$repo/.git" GIT_INDEX_FILE="$idx" git write-tree)
+            commit=$(git commit-tree "$tree" -m "Prints de ${dir} (${GITHUB_SHA::7})")
+            if git push --force-with-lease="refs/heads/ci-screenshots:${old}" origin "$commit:refs/heads/ci-screenshots"; then
+              exit 0
+            fi
+            sleep $((i * 5))
+          done
+          echo "Não consegui guardar os prints no branch ci-screenshots" && exit 1
 
       - uses: actions/upload-artifact@v4
         if: always()

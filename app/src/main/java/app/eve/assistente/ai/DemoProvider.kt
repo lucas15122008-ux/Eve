@@ -18,7 +18,7 @@ class DemoProvider : AiProvider {
         val today = LocalDate.now()
         return when {
             last.startsWith("DADOS DO MERCADO LIVRE") -> {
-                val total = Regex("""Total: ([^.]+)\.""").find(last)?.groupValues?.get(1) ?: "algumas vendas"
+                val total = Regex("""Total: (.+?)\.(?: Ticket|\n|$)""").find(last)?.groupValues?.get(1) ?: "algumas vendas"
                 val top = Regex("""1\) \d+ un\. ([^(]+)\(""").find(last)?.groupValues?.get(1)?.trim()
                 val fala = "Nos últimos 7 dias foram $total." + (top?.let { " O que mais saiu foi $it." } ?: "")
                 JSONObject().put("fala", fala).put("acoes", org.json.JSONArray()).toString()
