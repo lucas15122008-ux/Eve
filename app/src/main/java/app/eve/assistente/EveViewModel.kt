@@ -12,14 +12,15 @@ import app.eve.assistente.ai.ChatMessage
 import app.eve.assistente.ai.EveSettings
 import app.eve.assistente.ai.ProviderId
 import app.eve.assistente.ai.Role
+import app.eve.assistente.assistant.EveBrain
+import app.eve.assistente.assistant.EveCard
 import app.eve.assistente.voice.VoiceInput
 import app.eve.assistente.voice.VoiceOutput
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlinx.coroutines.withContext
 
 enum class EveState { IDLE, LISTENING, THINKING, SPEAKING }
 
@@ -27,7 +28,8 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
 
     val settings = EveSettings(app)
     private val voiceIn = VoiceInput(app)
-    private val voiceOut = VoiceOutput(app)
+    private val voiceOut = VoiceOutput(app).also { it.speechRate = settings.speechRate }
+    private val brain = EveBrain(app)
 
     var state by mutableStateOf(EveState.IDLE)
         private set
@@ -42,6 +44,9 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
     var error by mutableStateOf<String?>(null)
         private set
     var showSettings by mutableStateOf(!settings.isConfigured)
+    /** A "tela personalizada" que aparece no meio (agenda, lembretes...). Null = Eve no centro. */
+    var card by mutableStateOf<EveCard?>(null)
+        private set
 
     private val history = mutableListOf<ChatMessage>()
     private var thinkingJob: Job? = null
@@ -93,11 +98,15 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         trimHistory()
         thinkingJob = viewModelScope.launch {
             try {
-                val answer = settings.createProvider().reply(systemPrompt(), history.toList())
-                history += ChatMessage(Role.EVE, answer)
-                reply = answer
+                val result = withContext(Dispatchers.IO) {
+                    val raw = settings.createProvider().reply(brain.systemPrompt(settings.userName), history.toList())
+                    brain.handle(raw)
+                }
+                history += ChatMessage(Role.EVE, result.rawForHistory)
+                reply = result.speech
+                card = result.card
                 state = EveState.SPEAKING
-                voiceOut.speak(answer) {
+                voiceOut.speak(result.speech) {
                     if (state == EveState.SPEAKING) state = EveState.IDLE
                 }
             } catch (e: CancellationException) {
@@ -115,6 +124,11 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Fecha a tela personalizada e a Eve volta para o centro. */
+    fun closeCard() {
+        card = null
+    }
+
     private fun trimHistory() {
         // Mantém só as últimas mensagens para a conversa continuar rápida e barata.
         while (history.size > MAX_HISTORY) history.removeAt(0)
@@ -127,31 +141,20 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         heard = ""
         reply = ""
         error = null
+        card = null
     }
 
-    fun saveSettings(provider: ProviderId, apiKey: String, model: String, name: String) {
+    fun saveSettings(provider: ProviderId, apiKey: String, model: String, name: String, speechRate: Float) {
         settings.save(provider, apiKey, model)
         settings.userName = name
+        settings.speechRate = speechRate
+        voiceOut.speechRate = speechRate
         showSettings = false
         error = null
     }
 
     fun onMicPermissionDenied() {
         error = "Sem a permissão do microfone eu não consigo te ouvir."
-    }
-
-    private fun systemPrompt(): String {
-        val now = SimpleDateFormat("EEEE, d 'de' MMMM 'de' yyyy, HH:mm", Locale.forLanguageTag("pt-BR")).format(Date())
-        val name = settings.userName.ifBlank { "o usuário" }
-        return """
-            Você é a Eve, assistente pessoal de $name, rodando no celular dele.
-            Fale sempre em português do Brasil, de forma natural, simpática e direta, como numa conversa por voz.
-            Suas respostas serão lidas em voz alta: não use markdown, listas, asteriscos, emojis nem símbolos.
-            Prefira de uma a três frases, a menos que peçam mais detalhes.
-            Agora é $now.
-            Você ainda não consegue criar lembretes, ver a agenda nem acessar o Mercado Livre.
-            Se pedirem isso, diga com naturalidade que essa função chega numa próxima versão.
-        """.trimIndent()
     }
 
     override fun onCleared() {

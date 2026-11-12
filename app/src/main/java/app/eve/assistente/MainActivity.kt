@@ -2,29 +2,32 @@ package app.eve.assistente
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.coerceIn
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,14 +38,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import app.eve.assistente.assistant.ReminderScheduler
 import app.eve.assistente.ui.EveAvatar
+import app.eve.assistente.ui.EveCardView
 import app.eve.assistente.ui.SettingsDialog
 
 private val Background = Color(0xFF0B0F17)
@@ -56,6 +65,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ReminderScheduler.ensureChannel(this)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(background = Background, surface = Color(0xFF141A24))) {
                 EveScreen(vm, hasMicPermission = {
@@ -67,10 +77,27 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** Permissões do passo 2: agenda e notificações dos lembretes. */
+private fun assistantPermissions(): Array<String> = buildList {
+    add(Manifest.permission.READ_CALENDAR)
+    add(Manifest.permission.WRITE_CALENDAR)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+}.toTypedArray()
+
 @Composable
 private fun EveScreen(vm: EveViewModel, hasMicPermission: () -> Boolean) {
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) vm.onOrbTapped() else vm.onMicPermissionDenied()
+    }
+    val askAssistant = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    LaunchedEffect(Unit) { askAssistant.launch(assistantPermissions()) }
+
+    val onEveTapped = {
+        if (vm.state == EveState.IDLE && !hasMicPermission()) {
+            askMic.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            vm.onOrbTapped()
+        }
     }
 
     Box(
@@ -79,41 +106,97 @@ private fun EveScreen(vm: EveViewModel, hasMicPermission: () -> Boolean) {
             .background(Background)
             .safeDrawingPadding()
     ) {
-        val onEveTapped = {
-            if (vm.state == EveState.IDLE && !hasMicPermission()) {
-                askMic.launch(Manifest.permission.RECORD_AUDIO)
-            } else {
-                vm.onOrbTapped()
-            }
-        }
-
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            if (maxWidth > maxHeight) {
-                // Celular deitado: a Eve à esquerda e a conversa à direita.
-                val faceSize = (maxHeight - 64.dp).coerceIn(120.dp, 220.dp)
-                Row(
-                    Modifier.fillMaxSize().padding(start = 24.dp, end = 56.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    EveFace(vm, onEveTapped, faceSize)
-                    Spacer(Modifier.width(24.dp))
-                    Conversation(vm, Modifier.weight(1f).fillMaxHeight().padding(vertical = 16.dp))
-                }
-            } else {
-                // Celular em pé: a Eve no meio e a conversa embaixo.
-                Column(
-                    Modifier.fillMaxSize().padding(horizontal = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    EveFace(vm, onEveTapped, 240.dp)
-                    Spacer(Modifier.height(24.dp))
-                    Conversation(vm, Modifier.fillMaxWidth().height(220.dp))
+            val landscape = maxWidth > maxHeight
+            val hasCard = vm.card != null
+            val bigFace = if (landscape) (maxHeight - 64.dp).coerceIn(120.dp, 220.dp) else 240.dp
+            val smallFace = 76.dp
+
+            // A Eve "voa" para o canto quando aparece uma tela personalizada.
+            // Ela fica sempre no mesmo lugar da árvore da tela, então não recarrega ao girar o celular.
+            val anim = spring<Float>(dampingRatio = 0.8f, stiffness = 180f)
+            val faceSize by animateDpAsState(if (hasCard) smallFace else bigFace, spring(dampingRatio = 0.75f, stiffness = 180f), label = "faceSize")
+            val biasX by animateFloatAsState(if (hasCard || landscape) -1f else 0f, anim, label = "biasX")
+            val biasY by animateFloatAsState(
+                when {
+                    hasCard -> -1f
+                    landscape -> 0f
+                    else -> -0.35f
+                },
+                anim, label = "biasY",
+            )
+            val padStart by animateDpAsState(
+                when {
+                    hasCard -> 12.dp
+                    landscape -> 24.dp
+                    else -> 0.dp
+                },
+                label = "padStart",
+            )
+            val padTop by animateDpAsState(if (hasCard) 12.dp else 0.dp, label = "padTop")
+
+            EveAvatar(
+                state = vm.state,
+                volume = vm.volume,
+                onClick = onEveTapped,
+                modifier = Modifier
+                    .align(BiasAlignment(biasX, biasY))
+                    .padding(start = padStart, top = padTop)
+                    .size(faceSize),
+            )
+
+            // Conversa normal: embaixo (em pé) ou à direita (deitado)
+            AnimatedVisibility(
+                visible = !hasCard,
+                enter = fadeIn(), exit = fadeOut(),
+                modifier = if (landscape) {
+                    Modifier.fillMaxSize().padding(start = bigFace + 48.dp, end = 56.dp, top = 16.dp, bottom = 16.dp)
+                } else {
+                    Modifier.align(Alignment.BottomCenter).height(maxHeight * 0.42f).padding(horizontal = 24.dp)
+                },
+            ) {
+                Conversation(vm, centered = true)
+            }
+
+            // Estado ("Ouvindo…") ao lado da Eve pequena
+            AnimatedVisibility(
+                visible = hasCard,
+                enter = fadeIn(), exit = fadeOut(),
+                modifier = if (landscape) {
+                    Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 96.dp).width(100.dp)
+                } else {
+                    Modifier.align(Alignment.TopStart).padding(start = 100.dp, top = 40.dp, end = 56.dp)
+                },
+            ) {
+                Text(statusText(vm.state), color = TextSoft, fontSize = 14.sp)
+            }
+
+            // A tela personalizada no meio
+            AnimatedVisibility(
+                visible = hasCard,
+                enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                exit = fadeOut() + scaleOut(targetScale = 0.9f),
+                modifier = if (landscape) {
+                    Modifier.fillMaxSize().padding(start = 120.dp, end = 56.dp, top = 16.dp, bottom = 16.dp)
+                } else {
+                    Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 108.dp, bottom = 16.dp)
+                },
+            ) {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (vm.reply.isNotBlank()) {
+                        Text(vm.reply, color = TextMain, fontSize = 17.sp, lineHeight = 24.sp)
+                        Spacer(Modifier.height(16.dp))
+                    }
+                    vm.card?.let { EveCardView(it, onClose = vm::closeCard) }
+                    vm.error?.let {
+                        Spacer(Modifier.height(12.dp))
+                        Text(it, color = ErrorColor, fontSize = 15.sp)
+                    }
                 }
             }
         }
 
-        // Por último, para ficar por cima da conversa.
+        // Por último, para ficar por cima de tudo.
         IconButton(
             onClick = { vm.showSettings = true },
             modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
@@ -133,43 +216,26 @@ private fun EveScreen(vm: EveViewModel, hasMicPermission: () -> Boolean) {
     }
 }
 
-/** A Eve com o texto de estado embaixo ("Ouvindo…", "Pensando…"). */
+/** Estado, o que você falou, a resposta da Eve e erros, com rolagem. */
 @Composable
-private fun EveFace(vm: EveViewModel, onClick: () -> Unit, size: Dp) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        EveAvatar(
-            state = vm.state,
-            volume = vm.volume,
-            onClick = onClick,
-            modifier = Modifier.size(size),
-        )
-        Text(
-            text = statusText(vm.state),
-            color = TextSoft,
-            fontSize = 15.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-    }
-}
-
-/** O que você falou, a resposta da Eve e erros, com rolagem. */
-@Composable
-private fun Conversation(vm: EveViewModel, modifier: Modifier) {
+private fun Conversation(vm: EveViewModel, centered: Boolean) {
+    val align = if (centered) TextAlign.Center else TextAlign.Start
     Column(
-        modifier.verticalScroll(rememberScrollState()),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Text(statusText(vm.state), color = TextSoft, fontSize = 15.sp, textAlign = align)
+        Spacer(Modifier.height(16.dp))
         if (vm.heard.isNotBlank()) {
-            Text("“${vm.heard}”", color = TextSoft, fontSize = 16.sp, textAlign = TextAlign.Center)
+            Text("“${vm.heard}”", color = TextSoft, fontSize = 16.sp, textAlign = align)
             Spacer(Modifier.height(12.dp))
         }
         if (vm.reply.isNotBlank() && vm.state != EveState.LISTENING) {
-            Text(vm.reply, color = TextMain, fontSize = 19.sp, textAlign = TextAlign.Center, lineHeight = 26.sp)
+            Text(vm.reply, color = TextMain, fontSize = 19.sp, textAlign = align, lineHeight = 26.sp)
         }
         vm.error?.let {
             Spacer(Modifier.height(12.dp))
-            Text(it, color = ErrorColor, fontSize = 15.sp, textAlign = TextAlign.Center)
+            Text(it, color = ErrorColor, fontSize = 15.sp, textAlign = align)
         }
     }
 }

@@ -2,16 +2,22 @@
 
 Assistente de IA pessoal para Android, por voz.
 
-## O que a Eve faz hoje (versão 0.1)
+## O que a Eve faz hoje (versão 0.2)
 
-- Você toca na Eve, fala, e ela responde falando (português do Brasil).
-- Ela lembra do que vocês conversaram nas últimas mensagens.
-- A IA é "trocável": hoje usa o Google Gemini, e outras (como o Claude) entram só como configuração.
+- Você toca na Eve, fala, e ela responde falando (português do Brasil). A velocidade da voz é ajustável.
+- **Lembretes:** "Eve, me lembra de ligar pro fornecedor amanhã às 9". Na hora, chega uma notificação.
+  Também dá para pedir "quais são meus lembretes?" e "cancela o lembrete do fornecedor".
+- **Agenda:** "o que eu tenho amanhã?" ou "marca dentista sexta às 15h". Usa a agenda do celular,
+  que já sincroniza com o Google Agenda.
+- **Telas personalizadas:** quando a Eve mostra a agenda ou os lembretes, ela vai para o canto
+  e a informação aparece no meio da tela.
+- A IA é "trocável": Google Gemini ou OpenRouter, escolhidos nas configurações.
 
 O rosto da Eve é uma folhinha de agenda violeta com olhos, que pisca, respira e muda de expressão
 (ouvindo, pensando, falando). O desenho usa o [open-bot-avatar](https://github.com/DominikScholz/open-bot-avatar) (licença MIT).
+Funciona com o celular em pé ou deitado.
 
-Ainda não faz: lembretes, agenda, Mercado Livre, modo VR. Isso vem nos próximos passos.
+Ainda não faz: Mercado Livre e modo VR. Isso vem nos próximos passos.
 
 ## Como instalar no celular
 
