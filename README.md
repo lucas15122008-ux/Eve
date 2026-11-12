@@ -56,10 +56,13 @@ A Eve usa o mesmo servidor MCP "JR Mercado Livre" que o Claude usa. O login do M
 fica no servidor, não no celular.
 
 1. Nas configurações da Eve (engrenagem), desça até **Mercado Livre**.
-2. Cole o endereço do servidor (começa com `https://`) e, se o servidor pedir, a chave de acesso.
-3. Salve e pergunte: "Eve, quanto eu vendi hoje?"
+2. Cole o endereço do servidor (começa com `https://` e termina com `/mcp`).
+3. Toque em **Entrar no Mercado Livre**. O navegador abre o mesmo login que você fez no Claude;
+   depois de entrar, ele volta para a Eve, que avisa que está conectada.
+4. Pergunte: "Eve, quanto eu vendi hoje?"
 
-O endereço e a chave ficam só no celular. Para a IA vão só números resumidos (totais por dia e
+O endereço e o login ficam só no celular. O acesso se renova sozinho; se o servidor pedir de novo,
+é só tocar em "Entrar no Mercado Livre" outra vez. Para a IA vão só números resumidos (totais por dia e
 produtos mais vendidos), nunca nome ou apelido de comprador.
 
 ## Para quem for mexer no código

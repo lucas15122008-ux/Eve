@@ -1,6 +1,9 @@
 package app.eve.assistente
 
 import android.app.Application
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +17,7 @@ import app.eve.assistente.ai.ProviderId
 import app.eve.assistente.ai.Role
 import app.eve.assistente.assistant.EveBrain
 import app.eve.assistente.assistant.EveCard
+import app.eve.assistente.mercadolivre.McpException
 import app.eve.assistente.mercadolivre.SalesSource
 import org.json.JSONArray
 import org.json.JSONObject
@@ -66,8 +70,14 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
     /** A conexão com o Mercado Livre é reaproveitada enquanto as configurações não mudam. */
     private var salesCache: Pair<String, SalesSource?>? = null
 
+    /** Se a Eve já entrou no servidor do Mercado Livre (mostra nas configurações). */
+    var mlLoggedIn by mutableStateOf(settings.mlAuth()?.isLoggedIn == true)
+        private set
+    var mlBusy by mutableStateOf(false)
+        private set
+
     private fun salesSource(): SalesSource? {
-        val key = listOf(settings.provider.key, settings.mlServerUrl, settings.mlServerToken).joinToString("|")
+        val key = listOf(settings.provider.key, settings.mlServerUrl).joinToString("|")
         salesCache?.let { if (it.first == key) return it.second }
         return settings.createSalesSource().also { salesCache = key to it }
     }
@@ -226,15 +236,92 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         card = null
     }
 
+    /**
+     * "Entrar no Mercado Livre": guarda o endereço, registra a Eve no servidor e abre o navegador.
+     * Depois do login, o navegador volta para a Eve e chega em [finishMlLogin].
+     */
+    fun startMlLogin(url: String) {
+        settings.mlServerUrl = url
+        salesCache = null
+        val auth = settings.mlAuth() ?: run {
+            error = "O endereço do servidor precisa começar com https://"
+            return
+        }
+        mlBusy = true
+        viewModelScope.launch {
+            try {
+                val loginUrl = auth.startLogin()
+                getApplication<Application>().startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(loginUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ActivityNotFoundException) {
+                error = "Não achei um navegador neste celular para fazer o login."
+            } catch (e: Exception) {
+                error = (e as? McpException)?.message
+                    ?: if (e is java.io.IOException) "Não consegui falar com o servidor do Mercado Livre. Confira a internet e o endereço."
+                    else "Não consegui começar o login: ${e.message}"
+            } finally {
+                mlBusy = false
+            }
+        }
+    }
+
+    /** O navegador voltou para a Eve (app.eve.assistente://oauth?code=...&state=...). */
+    fun finishMlLogin(uri: Uri) {
+        val auth = settings.mlAuth() ?: return
+        mlBusy = true
+        viewModelScope.launch {
+            try {
+                auth.finishLogin(uri.getQueryParameter("code"), uri.getQueryParameter("state"), uri.getQueryParameter("error"))
+                salesCache = null
+                mlLoggedIn = true
+                error = null
+                say("Pronto, entrei no Mercado Livre! Pode perguntar das suas vendas.", EveMood.ANIMADA)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mlLoggedIn = auth.isLoggedIn
+                error = (e as? McpException)?.message
+                    ?: if (e is java.io.IOException) "Não consegui falar com o servidor do Mercado Livre para terminar o login."
+                    else "O login não deu certo: ${e.message}"
+                mood = EveMood.TRISTE
+            } finally {
+                mlBusy = false
+            }
+        }
+    }
+
+    fun mlLogout() {
+        settings.mlAuth()?.logout()
+        salesCache = null
+        mlLoggedIn = false
+    }
+
+    /** A Eve fala algo que não veio de uma pergunta (ex.: depois do login). */
+    private fun say(text: String, face: EveMood) {
+        if (state != EveState.IDLE) return
+        reply = text
+        mood = face
+        touch()
+        state = EveState.SPEAKING
+        voiceOut.speak(text) {
+            if (state == EveState.SPEAKING) state = EveState.IDLE
+        }
+    }
+
     fun saveSettings(
-        provider: ProviderId, apiKey: String, model: String, name: String, speechRate: Float,
-        mlUrl: String, mlToken: String,
+        provider: ProviderId, apiKey: String, model: String, name: String, speechRate: Float, mlUrl: String,
     ) {
         settings.save(provider, apiKey, model)
         settings.userName = name
         settings.speechRate = speechRate
-        settings.mlServerUrl = mlUrl
-        settings.mlServerToken = mlToken
+        if (mlUrl.trim() != settings.mlServerUrl) {
+            settings.mlServerUrl = mlUrl
+            salesCache = null
+            mlLoggedIn = settings.mlAuth()?.isLoggedIn == true
+        }
         voiceOut.speechRate = speechRate
         showSettings = false
         error = null

@@ -11,16 +11,26 @@ import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Erro com uma frase que dá para mostrar (e falar) para o usuário. */
-class McpException(message: String) : Exception(message)
+open class McpException(message: String) : Exception(message)
+
+/** O servidor pediu login (ou recusou o que a Eve tinha). */
+class McpLoginNeeded(message: String) : McpException(message)
 
 /**
  * Cliente MCP bem simples (transporte "Streamable HTTP"): é como a Eve conversa com o
  * servidor "JR Mercado Livre", o mesmo que o Claude usa. O servidor guarda o login do
  * Mercado Livre; a Eve só pede as ferramentas (ex.: ml_vendas) e recebe o resultado.
  *
- * O endereço e a chave ficam só nas configurações do celular, nunca no código.
+ * [auth] entrega o "crachá" (token) do login. Recebe o token que o servidor acabou de recusar
+ * (ou null) e devolve um token válido, renovando se precisar, ou null se a Eve ainda não entrou.
  */
-class McpClient(private val url: String, private val token: String) {
+class McpClient(
+    private val url: String,
+    private val auth: (suspend (rejected: String?) -> String?)? = null,
+) {
+    /** Para servidores com uma chave fixa (e para os testes). */
+    constructor(url: String, token: String) : this(url, { _: String? -> token.ifBlank { null } })
+
     private val ids = AtomicInteger(1)
     private val initLock = Mutex()
     @Volatile private var sessionId: String? = null
@@ -29,14 +39,17 @@ class McpClient(private val url: String, private val token: String) {
 
     /** Chama uma ferramenta do servidor e devolve o texto da resposta. */
     suspend fun callTool(name: String, arguments: JSONObject): String = withContext(Dispatchers.IO) {
-        ensureInitialized()
-        val response = try {
-            request("tools/call", JSONObject().put("name", name).put("arguments", arguments))
-        } catch (e: SessionExpired) {
-            // O servidor esqueceu a sessão: começa de novo, uma vez.
-            initLock.withLock { initialized = false; sessionId = null }
-            ensureInitialized()
-            request("tools/call", JSONObject().put("name", name).put("arguments", arguments))
+        val params = JSONObject().put("name", name).put("arguments", arguments)
+        val response = authed { token ->
+            ensureInitialized(token)
+            try {
+                request("tools/call", params, token)
+            } catch (e: SessionExpired) {
+                // O servidor esqueceu a sessão: começa de novo, uma vez.
+                initLock.withLock { initialized = false; sessionId = null }
+                ensureInitialized(token)
+                request("tools/call", params, token)
+            }
         }
         val result = response.optJSONObject("result")
             ?: throw McpException("O servidor do Mercado Livre respondeu de um jeito que eu não entendi.")
@@ -53,25 +66,44 @@ class McpClient(private val url: String, private val token: String) {
         text
     }
 
-    private suspend fun ensureInitialized() = initLock.withLock {
+    /** Roda [block] com o token; se o servidor recusar, pede um token novo (renovado) e tenta mais uma vez. */
+    private suspend fun <T> authed(block: suspend (token: String?) -> T): T {
+        val token = auth?.invoke(null)
+        try {
+            return block(token)
+        } catch (e: Unauthorized) {
+            val fresh = auth?.invoke(token)
+            if (fresh == null) throw McpLoginNeeded(if (token == null) NEED_LOGIN else REJECTED)
+            if (fresh == token) throw McpLoginNeeded(REJECTED)
+            initLock.withLock { initialized = false; sessionId = null }
+            try {
+                return block(fresh)
+            } catch (e2: Unauthorized) {
+                throw McpLoginNeeded(REJECTED)
+            }
+        }
+    }
+
+    private suspend fun ensureInitialized(token: String?) = initLock.withLock {
         if (initialized) return@withLock
         val params = JSONObject()
             .put("protocolVersion", PROTOCOL_VERSION)
             .put("capabilities", JSONObject())
             .put("clientInfo", JSONObject().put("name", "Eve").put("version", "0.3"))
-        val response = request("initialize", params)
+        val response = request("initialize", params, token)
         protocolVersion = response.optJSONObject("result")?.optString("protocolVersion")?.ifBlank { null }
             ?: PROTOCOL_VERSION
-        notify("notifications/initialized")
+        notify("notifications/initialized", token)
         initialized = true
     }
 
-    private fun request(method: String, params: JSONObject): JSONObject {
+    private fun request(method: String, params: JSONObject, token: String?): JSONObject {
         val id = ids.getAndIncrement()
         val body = JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", method).put("params", params)
-        val conn = open(body)
+        val conn = open(body, token)
         try {
             val code = conn.responseCode
+            if (code == 401) throw Unauthorized()
             if (code == 404 && sessionId != null && method != "initialize") throw SessionExpired()
             if (code !in 200..299) {
                 val detail = conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
@@ -92,8 +124,8 @@ class McpClient(private val url: String, private val token: String) {
         }
     }
 
-    private fun notify(method: String) {
-        val conn = open(JSONObject().put("jsonrpc", "2.0").put("method", method))
+    private fun notify(method: String, token: String?) {
+        val conn = open(JSONObject().put("jsonrpc", "2.0").put("method", method), token)
         try {
             conn.responseCode // 202 Accepted; o conteúdo não importa.
         } finally {
@@ -101,7 +133,7 @@ class McpClient(private val url: String, private val token: String) {
         }
     }
 
-    private fun open(body: JSONObject): HttpURLConnection {
+    private fun open(body: JSONObject, token: String?): HttpURLConnection {
         val conn = try {
             URL(url.trim()).openConnection() as HttpURLConnection
         } catch (e: Exception) {
@@ -113,7 +145,7 @@ class McpClient(private val url: String, private val token: String) {
         conn.doOutput = true
         conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         conn.setRequestProperty("Accept", "application/json, text/event-stream")
-        if (token.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer ${token.trim()}")
+        if (!token.isNullOrBlank()) conn.setRequestProperty("Authorization", "Bearer ${token.trim()}")
         sessionId?.let { conn.setRequestProperty("Mcp-Session-Id", it) }
         protocolVersion?.let { conn.setRequestProperty("MCP-Protocol-Version", it) }
         conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
@@ -141,7 +173,7 @@ class McpClient(private val url: String, private val token: String) {
     }
 
     private fun friendlyError(code: Int, detail: String): String = when (code) {
-        401, 403 -> "O servidor do Mercado Livre não aceitou a chave da Eve. Confira a chave nas configurações."
+        403 -> "O servidor do Mercado Livre não deixou a Eve fazer isso."
         404 -> "Não achei o servidor do Mercado Livre nesse endereço. Confira nas configurações."
         in 500..599 -> "O servidor do Mercado Livre está com problema agora. Tente de novo em instantes."
         else -> "O servidor do Mercado Livre respondeu com erro $code." +
@@ -149,8 +181,13 @@ class McpClient(private val url: String, private val token: String) {
     }
 
     private class SessionExpired : Exception()
+    private class Unauthorized : Exception()
 
     companion object {
         private const val PROTOCOL_VERSION = "2025-06-18"
+        const val NEED_LOGIN =
+            "A Eve ainda não entrou no servidor do Mercado Livre. Nas configurações, toque em \"Entrar no Mercado Livre\"."
+        const val REJECTED =
+            "O servidor do Mercado Livre não aceitou o login da Eve. Nas configurações, toque em \"Entrar no Mercado Livre\" de novo."
     }
 }

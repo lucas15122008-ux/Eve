@@ -1,7 +1,9 @@
 package app.eve.assistente.ai
 
 import android.content.Context
+import app.eve.assistente.mercadolivre.AuthStore
 import app.eve.assistente.mercadolivre.DemoSalesSource
+import app.eve.assistente.mercadolivre.McpAuth
 import app.eve.assistente.mercadolivre.McpClient
 import app.eve.assistente.mercadolivre.McpSalesSource
 import app.eve.assistente.mercadolivre.SalesSource
@@ -58,18 +60,35 @@ class EveSettings(context: Context) {
         get() = prefs.getString(KEY_ML_URL, "") ?: ""
         set(value) = prefs.edit().putString(KEY_ML_URL, value.trim()).apply()
 
-    /** Chave de acesso do servidor, se ele pedir uma. */
-    var mlServerToken: String
-        get() = prefs.getString(KEY_ML_TOKEN, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_ML_TOKEN, value.trim()).apply()
+    /** O login da Eve no servidor (o "crachá"), guardado só neste celular. */
+    val mlAuthStore: AuthStore = object : AuthStore {
+        override var server by text("ml_auth_server")
+        override var clientId by text("ml_auth_client_id")
+        override var accessToken by text("ml_auth_access_token")
+        override var refreshToken by text("ml_auth_refresh_token")
+        override var pendingState by text("ml_auth_state")
+        override var pendingVerifier by text("ml_auth_verifier")
+        override var expiresAt: Long
+            get() = prefs.getLong("ml_auth_expires_at", 0)
+            set(value) = prefs.edit().putLong("ml_auth_expires_at", value).apply()
+    }
+
+    private fun text(key: String) = object : kotlin.properties.ReadWriteProperty<Any?, String?> {
+        override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>): String? = prefs.getString(key, null)
+        override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: String?) {
+            prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
+        }
+    }
+
+    /** O login no servidor do Mercado Livre. Só https: o login nunca viaja sem criptografia. */
+    fun mlAuth(): McpAuth? = mlServerUrl.takeIf { it.startsWith("https://") }
+        ?.let { runCatching { McpAuth(it, mlAuthStore) }.getOrNull() }
 
     /** De onde a Eve tira as vendas. Null = Mercado Livre ainda não conectado. */
-    fun createSalesSource(): SalesSource? = when {
-        provider == ProviderId.DEMO -> DemoSalesSource()
-        // Só https: a chave do servidor nunca viaja sem criptografia.
-        mlServerUrl.startsWith("https://") ->
-            McpSalesSource(McpClient(mlServerUrl, mlServerToken))
-        else -> null
+    fun createSalesSource(): SalesSource? {
+        if (provider == ProviderId.DEMO) return DemoSalesSource()
+        val auth = mlAuth() ?: return null
+        return McpSalesSource(McpClient(mlServerUrl) { rejected -> auth.token(rejected) })
     }
 
     val isConfigured: Boolean
@@ -94,6 +113,5 @@ class EveSettings(context: Context) {
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_SPEECH_RATE = "speech_rate"
         private const val KEY_ML_URL = "ml_server_url"
-        private const val KEY_ML_TOKEN = "ml_server_token"
     }
 }
