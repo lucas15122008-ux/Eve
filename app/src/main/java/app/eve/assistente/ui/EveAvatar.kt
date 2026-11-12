@@ -36,6 +36,7 @@ import kotlin.random.Random
 
 private val Violet = Color(0xFF7C5CFF)
 private val Ink = Color(0xFF151515)
+private val Lavender = Color(0xFFC4B5FF)  // os "z" do sono, claros para aparecer no fundo escuro
 
 /** O contorno da folhinha de agenda, num quadro de 100 x 100 (mesmo desenho do ícone do app). */
 private const val BODY =
@@ -315,7 +316,7 @@ private fun DrawScope.drawZzz(alpha: Float, phase: Float) {
             lineTo(x + size, y + size)
         }
         drawPath(
-            z, Violet.copy(alpha = fade),
+            z, Lavender.copy(alpha = fade),
             style = Stroke(width = 2.4f, cap = StrokeCap.Round, join = StrokeJoin.Round),
         )
     }
