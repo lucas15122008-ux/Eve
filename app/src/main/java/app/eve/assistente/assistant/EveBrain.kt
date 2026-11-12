@@ -21,7 +21,13 @@ sealed class EveCard {
 }
 
 /** Resultado de uma resposta da IA depois de executar as ações. */
-data class BrainResult(val speech: String, val card: EveCard?, val rawForHistory: String)
+data class BrainResult(
+    val speech: String,
+    val card: EveCard?,
+    val rawForHistory: String,
+    /** Humor que a IA escolheu para o rosto da Eve (ex.: "surpresa"), ou null. */
+    val mood: String? = null,
+)
 
 /**
  * O "cérebro" da Eve: monta as instruções para a IA (com hora, lembretes e agenda)
@@ -43,9 +49,12 @@ Você é a Eve, assistente pessoal de $name, rodando no celular dele.
 Fale sempre em português do Brasil, de forma natural, simpática e direta, como numa conversa por voz.
 
 FORMATO OBRIGATÓRIO: responda SEMPRE e SOMENTE com um objeto JSON, sem nada antes ou depois:
-{"fala": "o que você vai dizer em voz alta", "acoes": [ ... ]}
+{"fala": "o que você vai dizer em voz alta", "humor": "normal", "acoes": [ ... ]}
 
 "fala" será lida em voz alta: sem markdown, listas, emojis ou símbolos. Prefira uma a três frases.
+"humor" é a cara que você faz ao falar: normal, surpresa, preocupada, sonolenta, piscadinha, triste, animada ou confusa.
+Use surpresa para novidades boas inesperadas, animada para conquistas e boas notícias, preocupada para atrasos e problemas,
+triste para notícias ruins, confusa quando não entendeu o pedido, piscadinha quando terminou uma tarefa, sonolenta para boa noite. Na dúvida, normal.
 "acoes" é uma lista (pode ser vazia) com estas opções:
 - {"tipo": "criar_lembrete", "quando": "AAAA-MM-DDTHH:MM", "texto": "do que lembrar"}
 - {"tipo": "cancelar_lembrete", "id": número}
@@ -116,7 +125,8 @@ ${calendarContext(now.toLocalDate())}
             append(cleanText(json.optString("fala")))
             problems.distinct().forEach { append(" ").append(it) }
         }.trim().ifEmpty { "Pronto." }
-        return BrainResult(speech, card, json.toString())
+        val mood = json.optString("humor").takeIf { it.isNotBlank() }
+        return BrainResult(speech, card, json.toString(), mood)
     }
 
     private fun runAction(a: JSONObject, problems: MutableList<String>): EveCard? {

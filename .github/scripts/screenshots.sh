@@ -46,6 +46,20 @@ shot 10-sem-animacoes-inicio 6
 ask "na verdade e as 6"
 shot 11-sem-animacoes-resposta 7
 
+# Humores da Eve (com as animações do sistema ligadas de novo).
+adb shell settings put global animator_duration_scale 1
+adb shell settings put global transition_animation_scale 1
+adb shell settings put global window_animation_scale 1
+adb shell am force-stop $PKG
+adb shell am start -W -n $ACT
+sleep 4
+n=20
+for m in normal surpresa preocupada sonolenta piscadinha triste animada confusa; do
+  adb shell am start -n $ACT --activity-single-top --es eve_teste_humor $m
+  shot "$n-humor-$m" 2
+  n=$((n + 1))
+done
+
 adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml screens/ui.xml
 PID=$(adb shell pidof $PKG)
 adb logcat -d -v brief | grep -E "\($PID\)|AndroidRuntime|FATAL" | tail -300 > screens/logcat.txt
