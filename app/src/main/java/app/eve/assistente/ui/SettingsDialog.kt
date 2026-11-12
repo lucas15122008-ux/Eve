@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
@@ -20,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.eve.assistente.ai.EveSettings
@@ -47,7 +49,12 @@ fun SettingsDialog(
 
     AlertDialog(
         onDismissRequest = { if (canDismiss) onDismiss() },
-        title = { Text("Configurações da Eve") },
+        title = {
+            Column {
+                Text("Configurações da Eve")
+                Text("Versão ${appVersion()}", style = MaterialTheme.typography.bodySmall)
+            }
+        },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -100,6 +107,14 @@ fun SettingsDialog(
             if (canDismiss) TextButton(onClick = onDismiss) { Text("Cancelar") }
         },
     )
+}
+
+/** A versão instalada (ex.: 0.2.11), para saber se o celular está com a versão nova. */
+@Composable
+private fun appVersion(): String {
+    val context = LocalContext.current
+    return runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+        .getOrNull() ?: "?"
 }
 
 private fun rateLabel(rate: Float): String = when {
