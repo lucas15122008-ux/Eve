@@ -9,8 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,7 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import app.eve.assistente.ui.EveOrb
+import app.eve.assistente.ui.EveAvatar
 import app.eve.assistente.ui.SettingsDialog
 
 private val Background = Color(0xFF0B0F17)
@@ -88,21 +85,17 @@ private fun EveScreen(vm: EveViewModel, hasMicPermission: () -> Boolean) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            EveOrb(
+            EveAvatar(
                 state = vm.state,
                 volume = vm.volume,
-                modifier = Modifier
-                    .size(260.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        if (vm.state == EveState.IDLE && !hasMicPermission()) {
-                            askMic.launch(Manifest.permission.RECORD_AUDIO)
-                        } else {
-                            vm.onOrbTapped()
-                        }
-                    },
+                onClick = {
+                    if (vm.state == EveState.IDLE && !hasMicPermission()) {
+                        askMic.launch(Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        vm.onOrbTapped()
+                    }
+                },
+                modifier = Modifier.size(240.dp),
             )
 
             Text(
