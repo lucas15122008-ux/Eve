@@ -3,23 +3,80 @@ package app.eve.assistente.mercadolivre
 // Testa a conversa da Eve com um servidor MCP "de mentira" que imita o JR Mercado Livre:
 // respostas em JSON e em eventos (SSE), chave errada, sessão expirada, erro da ferramenta
 // e, principalmente, que os dados do comprador nunca vão para a IA.
-import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.InetSocketAddress
+import java.io.InputStream
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
 import java.time.*
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 import kotlin.test.*
 
-class FakeMcp(val sse: Boolean, val token: String = "segredo", var expireOnce: Boolean = false, val toolError: Boolean = false) {
-    val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+/** Servidorzinho HTTP só para os testes (o com.sun.net.httpserver não existe no Android). */
+class MiniHttp(private val handler: (headers: Map<String, String>, body: String) -> Triple<Int, Map<String, String>, String>) {
+    private val socket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+    private val pool = Executors.newFixedThreadPool(8)
+    val port get() = socket.localPort
+
+    init {
+        thread(isDaemon = true) {
+            while (!socket.isClosed) {
+                val client = try { socket.accept() } catch (e: Exception) { break }
+                pool.execute { serve(client) }
+            }
+        }
+    }
+
+    private fun readLine(input: InputStream): String {
+        val sb = StringBuilder()
+        while (true) {
+            val b = input.read()
+            if (b < 0 || b == '\n'.code) break
+            if (b != '\r'.code) sb.append(b.toChar())
+        }
+        return sb.toString()
+    }
+
+    private fun serve(client: Socket) = client.use {
+        val input = client.getInputStream().buffered()
+        readLine(input) // POST /mcp HTTP/1.1
+        val headers = mutableMapOf<String, String>()
+        while (true) {
+            val line = readLine(input)
+            if (line.isEmpty()) break
+            val i = line.indexOf(':')
+            if (i > 0) headers[line.substring(0, i).trim().lowercase()] = line.substring(i + 1).trim()
+        }
+        val length = headers["content-length"]?.toInt() ?: 0
+        val bytes = ByteArray(length)
+        var read = 0
+        while (read < length) {
+            val n = input.read(bytes, read, length - read)
+            if (n < 0) break
+            read += n
+        }
+        val (code, outHeaders, body) = handler(headers, String(bytes, Charsets.UTF_8))
+        val out = body.toByteArray(Charsets.UTF_8)
+        val head = buildString {
+            append("HTTP/1.1 $code X\r\n")
+            outHeaders.forEach { (k, v) -> append("$k: $v\r\n") }
+            append("Content-Length: ${out.size}\r\nConnection: close\r\n\r\n")
+        }
+        client.getOutputStream().apply { write(head.toByteArray(Charsets.ISO_8859_1)); write(out); flush() }
+    }
+
+    fun stop() { socket.close(); pool.shutdownNow() }
+}
+
+class FakeMcp(val sse: Boolean, val token: String = "segredo", @Volatile var expireOnce: Boolean = false, val toolError: Boolean = false) {
     val calls = AtomicInteger()
     val inits = AtomicInteger()
-    val maxConcurrent = AtomicInteger()
-    private val current = AtomicInteger()
-    var session = "sess-1"
+    @Volatile var session = "sess-1"
     val zone = ZoneOffset.ofHours(-4) // como o ML devolve
     // 137 vendas de 06/11 a 12/11 (horário de Brasília), com comprador (que a Eve tem que descartar)
     val orders: List<JSONObject> = (0 until 137).map { i ->
@@ -31,62 +88,61 @@ class FakeMcp(val sse: Boolean, val token: String = "segredo", var expireOnce: B
             .put("itens", JSONArray().put(if (i % 3 == 0) "2x Filtro de Óleo Gol (MLB111)" else "1x Pastilha Freio Palio (MLB222)"))
     }
 
-    init {
-        server.createContext("/mcp") { ex ->
-            val now = current.incrementAndGet()
-            maxConcurrent.updateAndGet { maxOf(it, now) }
-            try {
-                val auth = ex.requestHeaders.getFirst("Authorization")
-                if (auth != "Bearer $token") { ex.sendResponseHeaders(401, -1); return@createContext }
-                val body = JSONObject(ex.requestBody.readBytes().toString(Charsets.UTF_8))
-                val method = body.getString("method")
-                if (!body.has("id")) { ex.sendResponseHeaders(202, -1); return@createContext }
-                if (method != "initialize") {
-                    if (ex.requestHeaders.getFirst("Mcp-Session-Id") != session) { ex.sendResponseHeaders(400, -1); return@createContext }
-                    if (expireOnce) { expireOnce = false; session = "sess-2"; ex.sendResponseHeaders(404, -1); return@createContext }
-                }
-                val result = when (method) {
-                    "initialize" -> { inits.incrementAndGet(); ex.responseHeaders.add("Mcp-Session-Id", session)
-                        JSONObject().put("protocolVersion", "2025-06-18").put("capabilities", JSONObject()) }
-                    "tools/call" -> {
-                        calls.incrementAndGet()
-                        Thread.sleep(50)
-                        val p = body.getJSONObject("params")
-                        assertEquals("ml_vendas", p.getString("name"))
-                        val a = p.getJSONObject("arguments")
-                        if (toolError) JSONObject().put("isError", true).put("content", JSONArray().put(JSONObject().put("type", "text").put("text", "token do ML expirou")))
-                        else {
-                            val from = OffsetDateTime.parse(a.getString("desde")); val to = OffsetDateTime.parse(a.getString("ate"))
-                            val match = orders.filter { val t = OffsetDateTime.parse(it.getString("data")); !t.isBefore(from) && !t.isAfter(to) }
-                                .sortedByDescending { it.getString("data") }
-                            val off = a.getInt("offset"); val lim = a.getInt("limit")
-                            assertTrue(lim <= 51)
-                            val page = match.drop(off).take(lim)
-                            val text = JSONObject().put("total", match.size).put("vendas", JSONArray(page)).toString()
-                            JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text)))
-                        }
-                    }
-                    else -> error("método $method")
-                }
-                val msg = JSONObject().put("jsonrpc", "2.0").put("id", body.get("id")).put("result", result).toString()
-                val out = if (sse) {
-                    ex.responseHeaders.add("Content-Type", "text/event-stream")
-                    // um aviso antes da resposta, e a resposta quebrada em duas linhas data:
-                    "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{}}\n\n" +
-                        "event: message\ndata: ${msg}\n\n"
-                } else {
-                    ex.responseHeaders.add("Content-Type", "application/json"); msg
-                }
-                val bytes = out.toByteArray(Charsets.UTF_8)
-                ex.sendResponseHeaders(200, bytes.size.toLong())
-                ex.responseBody.use { it.write(bytes) }
-            } finally { current.decrementAndGet(); ex.close() }
+    private val server = MiniHttp { headers, raw -> handle(headers, raw) }
+    val url get() = "http://127.0.0.1:${server.port}/mcp"
+    fun stop() = server.stop()
+
+    private fun handle(headers: Map<String, String>, raw: String): Triple<Int, Map<String, String>, String> {
+        if (headers["authorization"] != "Bearer $token") return Triple(401, emptyMap(), "")
+        val body = JSONObject(raw)
+        val method = body.getString("method")
+        if (!body.has("id")) return Triple(202, emptyMap(), "")
+        val outHeaders = mutableMapOf<String, String>()
+        if (method != "initialize") {
+            if (headers["mcp-session-id"] != session) return Triple(400, emptyMap(), "")
+            if (expireOnce) { expireOnce = false; session = "sess-2"; return Triple(404, emptyMap(), "") }
         }
-        server.executor = java.util.concurrent.Executors.newFixedThreadPool(8)
-        server.start()
+        val result = when (method) {
+            "initialize" -> {
+                inits.incrementAndGet()
+                outHeaders["Mcp-Session-Id"] = session
+                JSONObject().put("protocolVersion", "2025-06-18").put("capabilities", JSONObject())
+            }
+            "tools/call" -> {
+                calls.incrementAndGet()
+                Thread.sleep(50)
+                val p = body.getJSONObject("params")
+                assertEquals("ml_vendas", p.getString("name"))
+                val a = p.getJSONObject("arguments")
+                if (toolError) {
+                    JSONObject().put("isError", true)
+                        .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", "token do ML expirou")))
+                } else {
+                    val from = OffsetDateTime.parse(a.getString("desde"))
+                    val to = OffsetDateTime.parse(a.getString("ate"))
+                    val match = orders.filter {
+                        val t = OffsetDateTime.parse(it.getString("data")); !t.isBefore(from) && !t.isAfter(to)
+                    }.sortedByDescending { it.getString("data") }
+                    val off = a.getInt("offset"); val lim = a.getInt("limit")
+                    assertTrue(lim <= 51)
+                    val text = JSONObject().put("total", match.size).put("vendas", JSONArray(match.drop(off).take(lim))).toString()
+                    JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text)))
+                }
+            }
+            else -> error("método $method")
+        }
+        val msg = JSONObject().put("jsonrpc", "2.0").put("id", body.get("id")).put("result", result).toString()
+        return if (sse) {
+            outHeaders["Content-Type"] = "text/event-stream"
+            // um aviso antes da resposta, como servidores de verdade fazem
+            val events = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{}}\n\n" +
+                "event: message\ndata: $msg\n\n"
+            Triple(200, outHeaders, events)
+        } else {
+            outHeaders["Content-Type"] = "application/json"
+            Triple(200, outHeaders, msg)
+        }
     }
-    val url get() = "http://127.0.0.1:${server.address.port}/mcp"
-    fun stop() = server.stop(0)
 }
 
 class McpTest {
