@@ -13,6 +13,10 @@ Assistente de IA pessoal para Android, por voz.
   e a informação aparece no meio da tela.
 - A IA é "trocável": Google Gemini ou OpenRouter, escolhidos nas configurações.
 
+O rosto da Eve é uma folhinha de agenda violeta com olhos, que pisca, respira e muda de expressão
+(ouvindo, pensando, falando). O desenho usa o [open-bot-avatar](https://github.com/DominikScholz/open-bot-avatar) (licença MIT).
+Funciona com o celular em pé ou deitado.
+
 Ainda não faz: Mercado Livre e modo VR. Isso vem nos próximos passos.
 
 ## Como instalar no celular

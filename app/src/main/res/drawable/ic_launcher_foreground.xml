@@ -1,19 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ícone provisório: um núcleo de luz com um anel. O design definitivo vem depois. -->
+<!-- Ícone da Eve: a folhinha de agenda violeta com olhos (mesmo desenho do avatar no app). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FF5EE6D0"
-        android:strokeWidth="3"
-        android:pathData="M54,30a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z" />
-    <path
-        android:fillColor="#FF3FA9F5"
-        android:pathData="M54,40a14,14 0,1 1,0 28a14,14 0,1 1,0 -28z" />
-    <path
-        android:fillColor="#FFE8FFFB"
-        android:pathData="M54,47a7,7 0,1 1,0 14a7,7 0,1 1,0 -14z" />
+    <group
+        android:scaleX="0.62"
+        android:scaleY="0.62"
+        android:translateX="23"
+        android:translateY="21">
+        <path
+            android:fillColor="#FF7C5CFF"
+            android:pathData="M30 12C34 12 36 14 36 18V24H64V18C64 14 66 12 70 12C74 12 76 14 76 18V24H76C83 24 88 29 88 36V76C88 83 83 88 76 88H24C17 88 12 83 12 76V36C12 29 17 24 24 24H24V18C24 14 26 12 30 12Z" />
+        <path
+            android:fillColor="#FF151515"
+            android:pathData="M38,51.5a3,3 0,0 1,6 0v9a3,3 0,0 1,-6 0z" />
+        <path
+            android:fillColor="#FF151515"
+            android:pathData="M56,51.5a3,3 0,0 1,6 0v9a3,3 0,0 1,-6 0z" />
+    </group>
 </vector>
