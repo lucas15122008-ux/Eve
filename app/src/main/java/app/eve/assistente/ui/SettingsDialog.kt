@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,7 +29,7 @@ import app.eve.assistente.ai.ProviderId
 fun SettingsDialog(
     settings: EveSettings,
     canDismiss: Boolean,
-    onSave: (provider: ProviderId, key: String, model: String, name: String) -> Unit,
+    onSave: (provider: ProviderId, key: String, model: String, name: String, speechRate: Float) -> Unit,
     onDismiss: () -> Unit,
     onClearConversation: () -> Unit,
 ) {
@@ -36,6 +37,7 @@ fun SettingsDialog(
     var key by remember { mutableStateOf(settings.apiKey(provider)) }
     var model by remember { mutableStateOf(settings.model(provider)) }
     var name by remember { mutableStateOf(settings.userName) }
+    var rate by remember { mutableStateOf(settings.speechRate) }
 
     fun choose(p: ProviderId) {
         provider = p
@@ -83,14 +85,26 @@ fun SettingsDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Text("Velocidade da voz: ${rateLabel(rate)}")
+                Slider(
+                    value = rate, onValueChange = { rate = it },
+                    valueRange = 0.6f..1.2f, steps = 11,
+                )
                 TextButton(onClick = onClearConversation) { Text("Apagar a conversa atual") }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(provider, key, model, name) }, enabled = key.isNotBlank()) { Text("Salvar") }
+            TextButton(onClick = { onSave(provider, key, model, name, rate) }, enabled = key.isNotBlank()) { Text("Salvar") }
         },
         dismissButton = {
             if (canDismiss) TextButton(onClick = onDismiss) { Text("Cancelar") }
         },
     )
+}
+
+private fun rateLabel(rate: Float): String = when {
+    rate < 0.75f -> "bem devagar"
+    rate < 0.95f -> "devagar"
+    rate < 1.05f -> "normal"
+    else -> "rápida"
 }

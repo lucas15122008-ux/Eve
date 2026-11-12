@@ -29,7 +29,7 @@ class GeminiProvider(
                         )
                     }
                 })
-                put("generationConfig", JSONObject().put("maxOutputTokens", 1024))
+                put("generationConfig", JSONObject().put("maxOutputTokens", 1024).put("responseMimeType", "application/json"))
             }
 
             val modelPath = URLEncoder.encode(model.trim(), "UTF-8")

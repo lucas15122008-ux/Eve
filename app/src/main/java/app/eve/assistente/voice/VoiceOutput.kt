@@ -14,6 +14,9 @@ class VoiceOutput(context: Context) {
     private var ready = false
     private var onDone: (() -> Unit)? = null
 
+    /** Velocidade da fala: 1.0 é o normal do Android, menor é mais devagar. */
+    var speechRate: Float = DEFAULT_RATE
+
     private lateinit var tts: TextToSpeech
 
     init {
@@ -47,6 +50,7 @@ class VoiceOutput(context: Context) {
             return
         }
         onDone = whenDone
+        tts.setSpeechRate(speechRate)
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "eve-${System.currentTimeMillis()}")
     }
 
@@ -58,5 +62,9 @@ class VoiceOutput(context: Context) {
     fun shutdown() {
         tts.stop()
         tts.shutdown()
+    }
+
+    companion object {
+        const val DEFAULT_RATE = 0.85f
     }
 }

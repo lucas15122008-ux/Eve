@@ -38,6 +38,11 @@ class EveSettings(context: Context) {
         get() = prefs.getString(KEY_USER_NAME, "Lucas") ?: "Lucas"
         set(value) = prefs.edit().putString(KEY_USER_NAME, value.trim()).apply()
 
+    /** Velocidade da voz da Eve (0.6 = bem devagar, 1.2 = rápida). */
+    var speechRate: Float
+        get() = prefs.getFloat(KEY_SPEECH_RATE, 0.85f)
+        set(value) = prefs.edit().putFloat(KEY_SPEECH_RATE, value.coerceIn(0.5f, 1.5f)).apply()
+
     val isConfigured: Boolean
         get() = apiKey(provider).isNotBlank()
 
@@ -57,5 +62,6 @@ class EveSettings(context: Context) {
     companion object {
         private const val KEY_PROVIDER = "provider"
         private const val KEY_USER_NAME = "user_name"
+        private const val KEY_SPEECH_RATE = "speech_rate"
     }
 }
