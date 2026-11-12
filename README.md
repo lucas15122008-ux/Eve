@@ -8,6 +8,9 @@ Assistente de IA pessoal para Android, por voz.
 - Ela lembra do que vocês conversaram nas últimas mensagens.
 - A IA é "trocável": hoje usa o Google Gemini, e outras (como o Claude) entram só como configuração.
 
+O rosto da Eve é uma folhinha de agenda violeta com olhos, que pisca, respira e muda de expressão
+(ouvindo, pensando, falando). O desenho usa o [open-bot-avatar](https://github.com/DominikScholz/open-bot-avatar) (licença MIT).
+
 Ainda não faz: lembretes, agenda, Mercado Livre, modo VR. Isso vem nos próximos passos.
 
 ## Como instalar no celular
