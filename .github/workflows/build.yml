@@ -1,0 +1,58 @@
+name: Gerar APK da Eve
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Preparar a chave de assinatura
+        env:
+          EVE_KEYSTORE_BASE64: ${{ secrets.EVE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$EVE_KEYSTORE_BASE64" ]; then
+            echo "$EVE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/eve.jks"
+            echo "EVE_KEYSTORE_PATH=$RUNNER_TEMP/eve.jks" >> "$GITHUB_ENV"
+          else
+            echo "Sem chave fixa: usando a chave de debug temporária."
+          fi
+
+      - name: Compilar
+        env:
+          EVE_KEYSTORE_PASSWORD: ${{ secrets.EVE_KEYSTORE_PASSWORD }}
+          EVE_KEY_ALIAS: ${{ secrets.EVE_KEY_ALIAS }}
+          EVE_KEY_PASSWORD: ${{ secrets.EVE_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk Eve.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Eve-apk
+          path: Eve.apk
+
+      - name: Publicar versão para baixar no celular
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          name: Eve 0.1.${{ github.run_number }}
+          make_latest: true
+          files: Eve.apk

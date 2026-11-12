@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Eve" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/eve_background</item>
+        <item name="android:statusBarColor">@color/eve_background</item>
+        <item name="android:navigationBarColor">@color/eve_background</item>
+    </style>
+
+    <color name="eve_background">#FF0B0F17</color>
+    <color name="eve_icon_background">#FF0B0F17</color>
+</resources>
