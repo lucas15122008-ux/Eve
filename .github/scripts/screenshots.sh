@@ -5,7 +5,7 @@ PKG=app.eve.assistente
 ACT=$PKG/.MainActivity
 mkdir -p screens
 shot() { sleep "${2:-0}"; adb exec-out screencap -p > "screens/$1.png"; }
-ask() { adb shell am start -n $ACT --es eve_teste_pergunta "\"$1\""; }
+ask() { adb shell am start -n $ACT --activity-single-top --es eve_teste_pergunta "\"$1\""; }
 rotate() { adb shell wm user-rotation lock "$1" || adb shell settings put system user_rotation "$1"; }
 
 adb install -r app/build/outputs/apk/debug/app-debug.apk
