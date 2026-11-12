@@ -1,6 +1,9 @@
 package app.eve.assistente.assistant
 
 import android.content.Context
+import app.eve.assistente.mercadolivre.McpException
+import app.eve.assistente.mercadolivre.SalesSource
+import app.eve.assistente.mercadolivre.SalesSummary
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -18,10 +21,15 @@ sealed class EveCard {
     data class Agenda(val title: String, val items: List<AgendaItem>) : EveCard()
     data class Reminders(val items: List<AgendaItem>) : EveCard()
     data class Done(val title: String, val item: AgendaItem) : EveCard()
+    data class Sales(val summary: SalesSummary) : EveCard()
 }
 
-/** Resultado de uma resposta da IA depois de executar as ações. */
-data class BrainResult(val speech: String, val card: EveCard?, val rawForHistory: String)
+/**
+ * Resultado de uma resposta da IA depois de executar as ações.
+ * [followUp] vem preenchido quando a Eve buscou dados (ex.: vendas) e a IA precisa ver os números
+ * para responder: aí a pergunta volta para a IA com esses dados.
+ */
+data class BrainResult(val speech: String, val card: EveCard?, val rawForHistory: String, val followUp: String? = null)
 
 /**
  * O "cérebro" da Eve: monta as instruções para a IA (com hora, lembretes e agenda)
@@ -29,7 +37,7 @@ data class BrainResult(val speech: String, val card: EveCard?, val rawForHistory
  *
  * Funciona com qualquer provedor de IA, porque só depende de texto em JSON.
  */
-class EveBrain(context: Context) {
+class EveBrain(context: Context, private val salesSource: () -> SalesSource?) {
     private val ctx = context.applicationContext
     private val reminders = ReminderStore(ctx)
     private val calendar = CalendarRepo(ctx)
@@ -52,6 +60,7 @@ FORMATO OBRIGATÓRIO: responda SEMPRE e SOMENTE com um objeto JSON, sem nada ant
 - {"tipo": "criar_evento", "titulo": "...", "inicio": "AAAA-MM-DDTHH:MM", "fim": "AAAA-MM-DDTHH:MM", "local": "opcional"}
 - {"tipo": "mostrar_agenda", "dia": "AAAA-MM-DD"}
 - {"tipo": "mostrar_lembretes"}
+- {"tipo": "mostrar_vendas", "desde": "AAAA-MM-DD", "ate": "AAAA-MM-DD"}
 
 Regras:
 - Lembrete é um aviso no celular ("me lembra de..."). Evento é um compromisso na agenda ("marca uma reunião...").
@@ -61,7 +70,9 @@ Regras:
 - Quando perguntarem pelos lembretes, use "mostrar_lembretes".
 - Para cancelar, use o id que aparece na lista de lembretes abaixo.
 - Nunca invente compromissos que não estão nos dados.
-- Você ainda não acessa o Mercado Livre; se pedirem, diga que isso chega numa próxima versão.
+- Mercado Livre (loja JR Auto Peças): para perguntas sobre vendas, faturamento, quantos pedidos ou produtos mais vendidos, use "mostrar_vendas" com o período (as duas datas incluídas; "hoje" = desde e até hoje; "essa semana" = últimos 7 dias; no máximo 90 dias). Nessa hora diga só algo curto como "Vou ver suas vendas"; os números chegam numa próxima mensagem e aí você responde.
+- Nunca invente números de vendas.
+${salesStatus()}
 
 Agora é ${weekdayDate(now.toLocalDate())}, ${now.format(HM)} (${now.format(ISO_MIN)}).
 
@@ -70,6 +81,10 @@ ${remindersContext()}
 ${calendarContext(now.toLocalDate())}
         """.trimIndent()
     }
+
+    private fun salesStatus(): String =
+        if (salesSource() == null) "- O Mercado Livre ainda não está conectado na Eve: se pedirem vendas, use \"mostrar_vendas\" mesmo assim (a Eve explica como conectar)."
+        else "- O Mercado Livre está conectado."
 
     private fun remindersContext(): String {
         val list = reminders.all()
@@ -95,28 +110,80 @@ ${calendarContext(now.toLocalDate())}
         return "${shortDate(s.toLocalDate())} $time: ${e.title}" + (e.location?.let { " ($it)" } ?: "")
     }
 
-    /** Lê a resposta da IA, executa as ações e devolve o que falar e o que mostrar. */
-    fun handle(rawReply: String): BrainResult {
+    /**
+     * Lê a resposta da IA, executa as ações e devolve o que falar e o que mostrar.
+     * [allowData] = false na segunda rodada (depois dos dados), para a IA não pedir os dados de novo.
+     */
+    suspend fun handle(rawReply: String, allowData: Boolean = true): BrainResult {
         val json = extractJson(rawReply)
             ?: return BrainResult(speech = cleanText(rawReply), card = null, rawForHistory = rawReply)
 
         val problems = mutableListOf<String>()
         var card: EveCard? = null
+        var followUp: String? = null
+        var salesFailed = false
         val actions = json.optJSONArray("acoes") ?: JSONArray()
         for (i in 0 until actions.length()) {
             val a = actions.optJSONObject(i) ?: continue
             try {
-                runAction(a, problems)?.let { card = it }
+                if (a.optString("tipo") == "mostrar_vendas") {
+                    if (!allowData || followUp != null) continue
+                    val summary = sales(a, problems)
+                    if (summary == null) {
+                        salesFailed = true
+                        continue
+                    }
+                    card = EveCard.Sales(summary)
+                    followUp = summary.forAi()
+                } else {
+                    runAction(a, problems)?.let { card = it }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 problems += "Não consegui fazer uma das coisas que você pediu."
             }
         }
 
         val speech = buildString {
-            append(cleanText(json.optString("fala")))
+            // Se as vendas não vieram, o "vou ver suas vendas" da IA não faz sentido: fala só o problema.
+            if (!salesFailed) append(cleanText(json.optString("fala")))
             problems.distinct().forEach { append(" ").append(it) }
         }.trim().ifEmpty { "Pronto." }
-        return BrainResult(speech, card, json.toString())
+        return BrainResult(speech, card, json.toString(), followUp)
+    }
+
+    /** Busca as vendas do período pedido no Mercado Livre. */
+    private suspend fun sales(a: JSONObject, problems: MutableList<String>): SalesSummary? {
+        val source = salesSource()
+        if (source == null) {
+            problems += "O Mercado Livre ainda não está conectado. Coloque o endereço do servidor JR Mercado Livre nas configurações da Eve."
+            return null
+        }
+        val today = LocalDate.now(zone)
+        fun day(key: String) = runCatching { LocalDate.parse(a.optString(key).take(10)) }.getOrNull()
+        val to = (day("ate") ?: today).coerceAtMost(today)
+        val from = (day("desde") ?: to).coerceAtMost(to).coerceAtLeast(to.minusDays(89))
+        return try {
+            source.summary(from, to)
+        } catch (e: McpException) {
+            problems += e.message ?: "Não consegui ver as vendas agora."
+            null
+        } catch (e: java.io.IOException) {
+            problems += "Não consegui falar com o servidor do Mercado Livre. Confira a internet e o endereço nas configurações."
+            null
+        }
+    }
+
+    /** Se a IA falhar na segunda rodada, a Eve fala os números ela mesma. */
+    fun fallbackSalesSpeech(s: SalesSummary): String {
+        val period = when {
+            s.periodLabel == "Hoje" || s.periodLabel == "Ontem" -> s.periodLabel
+            s.from == s.to -> "No dia ${s.periodLabel}"
+            else -> "De ${s.periodLabel}"
+        }
+        if (s.count == 0) return "$period não teve nenhuma venda paga."
+        return "$period foram ${s.count} vendas, somando ${SalesSummary.money(s.revenue)}."
     }
 
     private fun runAction(a: JSONObject, problems: MutableList<String>): EveCard? {

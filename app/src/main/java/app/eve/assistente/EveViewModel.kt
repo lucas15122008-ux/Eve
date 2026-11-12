@@ -14,6 +14,9 @@ import app.eve.assistente.ai.ProviderId
 import app.eve.assistente.ai.Role
 import app.eve.assistente.assistant.EveBrain
 import app.eve.assistente.assistant.EveCard
+import app.eve.assistente.mercadolivre.SalesSource
+import org.json.JSONArray
+import org.json.JSONObject
 import app.eve.assistente.voice.VoiceInput
 import app.eve.assistente.voice.VoiceOutput
 import kotlinx.coroutines.CancellationException
@@ -29,7 +32,7 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
     val settings = EveSettings(app)
     private val voiceIn = VoiceInput(app)
     private val voiceOut = VoiceOutput(app).also { it.speechRate = settings.speechRate }
-    private val brain = EveBrain(app)
+    private val brain = EveBrain(app, ::salesSource)
 
     var state by mutableStateOf(EveState.IDLE)
         private set
@@ -50,6 +53,18 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
 
     private val history = mutableListOf<ChatMessage>()
     private var thinkingJob: Job? = null
+
+    /** A conexão com o Mercado Livre é reaproveitada enquanto as configurações não mudam. */
+    private var salesCache: Pair<String, SalesSource?>? = null
+
+    private fun salesSource(): SalesSource? {
+        val key = listOf(settings.provider.key, settings.mlServerUrl, settings.mlServerToken).joinToString("|")
+        salesCache?.let { if (it.first == key) return it.second }
+        return settings.createSalesSource().also { salesCache = key to it }
+    }
+
+    /** O que uma pergunta rendeu: o que falar, o que mostrar e as mensagens que entram na conversa. */
+    private class Turn(val speech: String, val card: EveCard?, val messages: List<ChatMessage>)
 
     /** Toque na Eve: começa a ouvir, ou interrompe o que ela estiver fazendo. */
     fun onOrbTapped() {
@@ -98,15 +113,13 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         trimHistory()
         thinkingJob = viewModelScope.launch {
             try {
-                val result = withContext(Dispatchers.IO) {
-                    val raw = settings.createProvider().reply(brain.systemPrompt(settings.userName), history.toList())
-                    brain.handle(raw)
-                }
-                history += ChatMessage(Role.EVE, result.rawForHistory)
-                reply = result.speech
-                card = result.card
+                val turn = withContext(Dispatchers.IO) { think() }
+                history += turn.messages
+                trimHistory()
+                reply = turn.speech
+                card = turn.card
                 state = EveState.SPEAKING
-                voiceOut.speak(result.speech) {
+                voiceOut.speak(turn.speech) {
                     if (state == EveState.SPEAKING) state = EveState.IDLE
                 }
             } catch (e: CancellationException) {
@@ -122,6 +135,33 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
                 state = EveState.IDLE
             }
         }
+    }
+
+    /**
+     * Pergunta para a IA. Se ela pedir dados (ex.: vendas do Mercado Livre), a Eve busca,
+     * mostra o gráfico e manda os números de volta para a IA responder.
+     */
+    private suspend fun think(): Turn {
+        val provider = settings.createProvider()
+        val prompt = brain.systemPrompt(settings.userName)
+        val first = brain.handle(provider.reply(prompt, history.toList()))
+        val firstMsg = ChatMessage(Role.EVE, first.rawForHistory)
+        val data = first.followUp ?: return Turn(first.speech, first.card, listOf(firstMsg))
+
+        val dataMsg = ChatMessage(Role.USER, data)
+        val second = try {
+            brain.handle(provider.reply(prompt, history + firstMsg + dataMsg), allowData = false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        val speech = second?.speech
+            ?: (first.card as? EveCard.Sales)?.let { brain.fallbackSalesSpeech(it.summary) }
+            ?: first.speech
+        val raw = second?.rawForHistory
+            ?: JSONObject().put("fala", speech).put("acoes", JSONArray()).toString()
+        return Turn(speech, second?.card ?: first.card, listOf(firstMsg, dataMsg, ChatMessage(Role.EVE, raw)))
     }
 
     /** Fecha a tela personalizada e a Eve volta para o centro. */
@@ -144,10 +184,15 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         card = null
     }
 
-    fun saveSettings(provider: ProviderId, apiKey: String, model: String, name: String, speechRate: Float) {
+    fun saveSettings(
+        provider: ProviderId, apiKey: String, model: String, name: String, speechRate: Float,
+        mlUrl: String, mlToken: String,
+    ) {
         settings.save(provider, apiKey, model)
         settings.userName = name
         settings.speechRate = speechRate
+        settings.mlServerUrl = mlUrl
+        settings.mlServerToken = mlToken
         voiceOut.speechRate = speechRate
         showSettings = false
         error = null

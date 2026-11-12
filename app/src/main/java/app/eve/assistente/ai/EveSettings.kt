@@ -1,6 +1,10 @@
 package app.eve.assistente.ai
 
 import android.content.Context
+import app.eve.assistente.mercadolivre.DemoSalesSource
+import app.eve.assistente.mercadolivre.McpClient
+import app.eve.assistente.mercadolivre.McpSalesSource
+import app.eve.assistente.mercadolivre.SalesSource
 
 /** Os provedores de IA que a Eve sabe usar. */
 enum class ProviderId(val key: String, val label: String, val defaultModel: String, val keyHint: String) {
@@ -49,6 +53,25 @@ class EveSettings(context: Context) {
         get() = prefs.getFloat(KEY_SPEECH_RATE, 0.85f)
         set(value) = prefs.edit().putFloat(KEY_SPEECH_RATE, value.coerceIn(0.5f, 1.5f)).apply()
 
+    /** Endereço do servidor MCP "JR Mercado Livre" (o mesmo conector que o Claude usa). */
+    var mlServerUrl: String
+        get() = prefs.getString(KEY_ML_URL, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_ML_URL, value.trim()).apply()
+
+    /** Chave de acesso do servidor, se ele pedir uma. */
+    var mlServerToken: String
+        get() = prefs.getString(KEY_ML_TOKEN, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_ML_TOKEN, value.trim()).apply()
+
+    /** De onde a Eve tira as vendas. Null = Mercado Livre ainda não conectado. */
+    fun createSalesSource(): SalesSource? = when {
+        provider == ProviderId.DEMO -> DemoSalesSource()
+        // Só https: a chave do servidor nunca viaja sem criptografia.
+        mlServerUrl.startsWith("https://") ->
+            McpSalesSource(McpClient(mlServerUrl, mlServerToken))
+        else -> null
+    }
+
     val isConfigured: Boolean
         get() = apiKey(provider).isNotBlank()
 
@@ -70,5 +93,7 @@ class EveSettings(context: Context) {
         private const val KEY_PROVIDER = "provider"
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_SPEECH_RATE = "speech_rate"
+        private const val KEY_ML_URL = "ml_server_url"
+        private const val KEY_ML_TOKEN = "ml_server_token"
     }
 }

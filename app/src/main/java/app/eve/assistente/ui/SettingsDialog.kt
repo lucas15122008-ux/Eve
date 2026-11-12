@@ -31,7 +31,7 @@ import app.eve.assistente.ai.ProviderId
 fun SettingsDialog(
     settings: EveSettings,
     canDismiss: Boolean,
-    onSave: (provider: ProviderId, key: String, model: String, name: String, speechRate: Float) -> Unit,
+    onSave: (provider: ProviderId, key: String, model: String, name: String, speechRate: Float, mlUrl: String, mlToken: String) -> Unit,
     onDismiss: () -> Unit,
     onClearConversation: () -> Unit,
 ) {
@@ -40,6 +40,9 @@ fun SettingsDialog(
     var model by remember { mutableStateOf(settings.model(provider)) }
     var name by remember { mutableStateOf(settings.userName) }
     var rate by remember { mutableStateOf(settings.speechRate) }
+    var mlUrl by remember { mutableStateOf(settings.mlServerUrl) }
+    var mlToken by remember { mutableStateOf(settings.mlServerToken) }
+    val mlUrlOk = mlUrl.isBlank() || mlUrl.trim().startsWith("https://")
 
     fun choose(p: ProviderId) {
         provider = p
@@ -97,11 +100,34 @@ fun SettingsDialog(
                     value = rate, onValueChange = { rate = it },
                     valueRange = 0.6f..1.2f, steps = 11,
                 )
+
+                val urlHint: (@Composable () -> Unit)? =
+                    if (mlUrlOk) null else { { Text("O endereço precisa começar com https://") } }
+                Text("Mercado Livre", style = MaterialTheme.typography.titleSmall)
+                Text("Endereço do servidor JR Mercado Livre (o mesmo conector do Claude). Fica guardado só neste celular.")
+                OutlinedTextField(
+                    value = mlUrl, onValueChange = { mlUrl = it },
+                    label = { Text("Endereço do servidor (https://...)") },
+                    singleLine = true,
+                    isError = !mlUrlOk,
+                    supportingText = urlHint,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = mlToken, onValueChange = { mlToken = it },
+                    label = { Text("Chave do servidor (se tiver)") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 TextButton(onClick = onClearConversation) { Text("Apagar a conversa atual") }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(provider, key, model, name, rate) }, enabled = key.isNotBlank()) { Text("Salvar") }
+            TextButton(
+                onClick = { onSave(provider, key, model, name, rate, mlUrl, mlToken) },
+                enabled = key.isNotBlank() && mlUrlOk,
+            ) { Text("Salvar") }
         },
         dismissButton = {
             if (canDismiss) TextButton(onClick = onDismiss) { Text("Cancelar") }

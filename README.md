@@ -2,14 +2,16 @@
 
 Assistente de IA pessoal para Android, por voz.
 
-## O que a Eve faz hoje (versão 0.2)
+## O que a Eve faz hoje (versão 0.3)
 
 - Você toca na Eve, fala, e ela responde falando (português do Brasil). A velocidade da voz é ajustável.
 - **Lembretes:** "Eve, me lembra de ligar pro fornecedor amanhã às 9". Na hora, chega uma notificação.
   Também dá para pedir "quais são meus lembretes?" e "cancela o lembrete do fornecedor".
 - **Agenda:** "o que eu tenho amanhã?" ou "marca dentista sexta às 15h". Usa a agenda do celular,
   que já sincroniza com o Google Agenda.
-- **Telas personalizadas:** quando a Eve mostra a agenda ou os lembretes, ela vai para o canto
+- **Mercado Livre:** "quanto eu vendi essa semana?" ou "o que mais vendeu ontem?". A Eve busca as
+  vendas no servidor JR Mercado Livre, mostra o total e um gráfico, e responde falando.
+- **Telas personalizadas:** quando a Eve mostra a agenda, os lembretes ou as vendas, ela vai para o canto
   e a informação aparece no meio da tela.
 - A IA é "trocável": Google Gemini ou OpenRouter, escolhidos nas configurações.
 
@@ -18,7 +20,7 @@ O rosto da Eve é uma folhinha de agenda violeta com olhos, que pisca, respira e
 [open-bot-avatar](https://github.com/DominikScholz/open-bot-avatar).
 Funciona com o celular em pé ou deitado.
 
-Ainda não faz: Mercado Livre e modo VR. Isso vem nos próximos passos.
+Ainda não faz: modo VR. Isso vem no próximo passo.
 
 ## Como instalar no celular
 
@@ -48,15 +50,32 @@ A chave fica guardada só no seu celular. Nunca coloque ela no código ou no Git
 > No plano grátis do Gemini, o Google pode usar as conversas para melhorar os produtos dele.
 > Para usar com dados sensíveis (agenda, vendas), o ideal é passar para um plano pago.
 
+## Como conectar o Mercado Livre
+
+A Eve usa o mesmo servidor MCP "JR Mercado Livre" que o Claude usa. O login do Mercado Livre
+fica no servidor, não no celular.
+
+1. Nas configurações da Eve (engrenagem), desça até **Mercado Livre**.
+2. Cole o endereço do servidor (começa com `https://`) e, se o servidor pedir, a chave de acesso.
+3. Salve e pergunte: "Eve, quanto eu vendi hoje?"
+
+O endereço e a chave ficam só no celular. Para a IA vão só números resumidos (totais por dia e
+produtos mais vendidos), nunca nome ou apelido de comprador.
+
 ## Para quem for mexer no código
 
 - Kotlin + Jetpack Compose, `minSdk 26` (Android 8).
 - `app/src/main/java/app/eve/assistente/`
   - `ai/` a "tomada" de IA (`AiProvider`) e o provedor Gemini.
   - `voice/` ouvir (reconhecimento de voz do Android) e falar (TTS do Android).
+  - `assistant/` o "cérebro" (`EveBrain`), lembretes e agenda.
+  - `mercadolivre/` cliente MCP (`McpClient`) e o resumo das vendas para o gráfico.
   - `ui/` o visual da Eve (`EveOrb`) e as configurações.
   - `EveViewModel.kt` junta tudo: ouvir, pensar, falar.
-- O APK é gerado pelo GitHub Actions (`.github/workflows/build.yml`).
+- O APK é gerado pelo GitHub Actions (`.github/workflows/build.yml`), que também roda os testes
+  (`./gradlew testDebugUnitTest`).
+- `screenshots.yml` abre a Eve num celular Android virtual com uma IA e vendas de exemplo e tira prints
+  (ficam na branch `ci-screenshots`).
 - `app/eve-debug.keystore` é uma chave de **teste**, pública de propósito, só para as atualizações
   instalarem por cima. Para uma chave privada, crie os secrets `EVE_KEYSTORE_BASE64`,
   `EVE_KEYSTORE_PASSWORD`, `EVE_KEY_ALIAS` e `EVE_KEY_PASSWORD` no repositório.
