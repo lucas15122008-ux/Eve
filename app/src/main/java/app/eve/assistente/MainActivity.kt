@@ -3,6 +3,7 @@ package app.eve.assistente
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import app.eve.assistente.ai.ProviderId
 import app.eve.assistente.assistant.ReminderScheduler
 import app.eve.assistente.ui.EveAvatar
 import app.eve.assistente.ui.EveCardView
@@ -66,6 +68,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ReminderScheduler.ensureChannel(this)
+        handleTestIntent(intent)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(background = Background, surface = Color(0xFF141A24))) {
                 EveScreen(vm, hasMicPermission = {
@@ -74,6 +77,25 @@ class MainActivity : ComponentActivity() {
                 })
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleTestIntent(intent)
+    }
+
+    /**
+     * Nos testes do emulador, uma pergunta chega pelo "intent" em vez da voz.
+     * Só vale com a IA de demonstração, para outro app não conseguir mandar perguntas para a sua IA.
+     */
+    private fun handleTestIntent(intent: Intent?) {
+        if (vm.settings.provider != ProviderId.DEMO) return
+        intent?.getStringExtra(EXTRA_TEST_QUESTION)?.let { vm.askText(it) }
+        intent?.removeExtra(EXTRA_TEST_QUESTION)
+    }
+
+    companion object {
+        const val EXTRA_TEST_QUESTION = "eve_teste_pergunta"
     }
 }
 
