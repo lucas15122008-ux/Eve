@@ -36,6 +36,25 @@ shot 08-deitado-agenda 7
 rotate 0
 shot 09-em-pe-de-novo 6
 
+# Alterar e excluir lembretes e compromissos.
+# O emulador não tem conta Google: cria uma agenda local para a Eve poder marcar compromissos.
+adb shell content insert --uri "'content://com.android.calendar/calendars?caller_is_syncadapter=true&account_name=eve&account_type=LOCAL'" \
+  --bind account_name:s:eve --bind account_type:s:LOCAL --bind name:s:Eve --bind calendar_displayName:s:Eve \
+  --bind ownerAccount:s:eve --bind calendar_access_level:i:700 --bind visible:i:1 --bind sync_events:i:1 \
+  --bind calendar_timezone:s:UTC --bind isPrimary:i:1 || true
+adb shell content query --uri content://com.android.calendar/calendars --projection _id:name:account_type > screens/agendas.txt 2>&1 || true
+ask "me lembra de tirar o lixo"
+shot 30-lembrete-criado 6
+ask "muda o lembrete do lixo para amanha cedo"
+shot 31-lembrete-alterado 6
+ask "marca uma reuniao amanha as 15"
+shot 32-evento-criado 6
+ask "muda a reuniao para as 16"
+shot 33-evento-alterado 6
+ask "desmarca a reuniao"
+shot 34-evento-excluido 6
+adb shell content query --uri content://com.android.calendar/events --projection _id:title:dtstart:eventLocation:deleted > screens/eventos.txt 2>&1 || true
+
 # Fase 3: vendas do Mercado Livre (vendas de exemplo, nada real).
 ask "quanto eu vendi essa semana"
 shot 12-vendas 8
