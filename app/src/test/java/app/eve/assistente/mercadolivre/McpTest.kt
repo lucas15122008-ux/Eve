@@ -340,6 +340,9 @@ class McpTest {
         val s = runBlocking { DemoSalesSource().summary(LocalDate.now().minusDays(6), LocalDate.now()) }
         println(s.forAi())
         assertTrue(s.count > 0)
+        // Vendas de exemplo nunca podem parecer reais: a IA é avisada.
+        assertTrue(s.sample)
+        assertTrue(s.forAi().startsWith("ATENÇÃO: SÃO VENDAS DE EXEMPLO"))
         assertEquals("R$ 1.234,50", SalesSummary.money(1234.5))
     }
 }

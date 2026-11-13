@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -13,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.eve.assistente.ai.EveSettings
@@ -32,7 +35,7 @@ import app.eve.assistente.ai.ProviderId
 fun SettingsDialog(
     settings: EveSettings,
     canDismiss: Boolean,
-    onSave: (provider: ProviderId, key: String, model: String, name: String, speechRate: Float, mlUrl: String) -> Unit,
+    onSave: (provider: ProviderId, key: String, model: String, name: String, speechRate: Float, mlUrl: String, mlSample: Boolean) -> Unit,
     mlLoggedIn: Boolean,
     mlBusy: Boolean,
     onMlLogin: (url: String) -> Unit,
@@ -46,6 +49,7 @@ fun SettingsDialog(
     var name by remember { mutableStateOf(settings.userName) }
     var rate by remember { mutableStateOf(settings.speechRate) }
     var mlUrl by remember { mutableStateOf(settings.mlServerUrl) }
+    var mlSample by remember { mutableStateOf(settings.mlSampleData) }
     val mlUrlOk = mlUrl.isBlank() || mlUrl.trim().startsWith("https://")
 
     fun choose(p: ProviderId) {
@@ -139,12 +143,27 @@ fun SettingsDialog(
                     "O login abre no navegador, igual ao que você fez no Claude, e depois volta para a Eve.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .toggleable(value = mlSample, onValueChange = { mlSample = it }, role = Role.Switch),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Usar vendas de exemplo")
+                        Text(
+                            "Números inventados, para ver as telas antes do login. Desligue para ver as vendas reais.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(checked = mlSample, onCheckedChange = null)
+                }
                 TextButton(onClick = onClearConversation) { Text("Apagar a conversa atual") }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(provider, key, model, name, rate, mlUrl) },
+                onClick = { onSave(provider, key, model, name, rate, mlUrl, mlSample) },
                 enabled = key.isNotBlank() && mlUrlOk,
             ) { Text("Salvar") }
         },

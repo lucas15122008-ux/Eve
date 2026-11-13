@@ -148,7 +148,7 @@ private fun ItemRow(item: AgendaItem) {
 /** Vendas do Mercado Livre: total em destaque, gráfico de barras e os mais vendidos. */
 @Composable
 private fun SalesCard(s: SalesSummary) {
-    Header(s.periodLabel, "Vendas no Mercado Livre")
+    Header(s.periodLabel, if (s.sample) "Vendas de exemplo (não são reais)" else "Vendas no Mercado Livre")
     Text(SalesSummary.money(s.revenue), color = TextMain, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
     val ticket = if (s.count > 0) " · ticket médio ${SalesSummary.money(s.revenue / s.count)}" else ""
     Text("${s.count} ${if (s.count == 1) "venda" else "vendas"}$ticket", color = TextSoft, fontSize = 14.sp)

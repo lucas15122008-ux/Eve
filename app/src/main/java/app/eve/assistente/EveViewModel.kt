@@ -77,7 +77,7 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     private fun salesSource(): SalesSource? {
-        val key = listOf(settings.provider.key, settings.mlServerUrl).joinToString("|")
+        val key = listOf(settings.provider.key, settings.mlServerUrl, settings.mlSampleData).joinToString("|")
         salesCache?.let { if (it.first == key) return it.second }
         return settings.createSalesSource().also { salesCache = key to it }
     }
@@ -313,8 +313,10 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveSettings(
         provider: ProviderId, apiKey: String, model: String, name: String, speechRate: Float, mlUrl: String,
+        mlSample: Boolean,
     ) {
         settings.save(provider, apiKey, model)
+        settings.mlSampleData = mlSample
         settings.userName = name
         settings.speechRate = speechRate
         if (mlUrl.trim() != settings.mlServerUrl) {

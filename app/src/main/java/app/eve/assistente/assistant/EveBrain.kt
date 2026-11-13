@@ -1,7 +1,10 @@
 package app.eve.assistente.assistant
 
 import android.content.Context
+import app.eve.assistente.mercadolivre.DemoSalesSource
+import app.eve.assistente.mercadolivre.McpClient
 import app.eve.assistente.mercadolivre.McpException
+import app.eve.assistente.mercadolivre.McpLoginNeeded
 import app.eve.assistente.mercadolivre.SalesSource
 import app.eve.assistente.mercadolivre.SalesSummary
 import org.json.JSONArray
@@ -92,9 +95,11 @@ ${calendarContext(now.toLocalDate())}
         """.trimIndent()
     }
 
-    private fun salesStatus(): String =
-        if (salesSource() == null) "- O Mercado Livre ainda não está conectado na Eve: se pedirem vendas, use \"mostrar_vendas\" mesmo assim (a Eve explica como conectar)."
-        else "- O Mercado Livre está conectado."
+    private fun salesStatus(): String = when (salesSource()) {
+        is DemoSalesSource -> "- O Mercado Livre está no modo de exemplo: os números são inventados. Sempre diga que são vendas de exemplo."
+        null -> "- O Mercado Livre ainda não está conectado na Eve: se pedirem vendas, use \"mostrar_vendas\" mesmo assim (a Eve explica como conectar)."
+        else -> "- O Mercado Livre está conectado."
+    }
 
     private fun remindersContext(): String {
         val list = reminders.all()
@@ -168,7 +173,7 @@ ${calendarContext(now.toLocalDate())}
     private suspend fun sales(a: JSONObject, problems: MutableList<String>): SalesSummary? {
         val source = salesSource()
         if (source == null) {
-            problems += "O Mercado Livre ainda não está conectado. Coloque o endereço do servidor JR Mercado Livre nas configurações da Eve."
+            problems += "O Mercado Livre ainda não está conectado. Coloque o endereço do servidor JR Mercado Livre nas configurações da Eve. $SAMPLE_HINT"
             return null
         }
         val today = LocalDate.now(zone)
@@ -177,6 +182,9 @@ ${calendarContext(now.toLocalDate())}
         val from = (day("desde") ?: to).coerceAtMost(to).coerceAtLeast(to.minusDays(89))
         return try {
             source.summary(from, to)
+        } catch (e: McpLoginNeeded) {
+            problems += (e.message ?: McpClient.NEED_LOGIN) + " " + SAMPLE_HINT
+            null
         } catch (e: McpException) {
             problems += e.message ?: "Não consegui ver as vendas agora."
             null
@@ -193,8 +201,9 @@ ${calendarContext(now.toLocalDate())}
             s.from == s.to -> "No dia ${s.periodLabel}"
             else -> "De ${s.periodLabel}"
         }
-        if (s.count == 0) return "$period não teve nenhuma venda paga."
-        return "$period foram ${s.count} vendas, somando ${SalesSummary.money(s.revenue)}."
+        val prefix = if (s.sample) "Vendas de exemplo, não são reais. " else ""
+        if (s.count == 0) return "$prefix$period não teve nenhuma venda paga."
+        return "$prefix$period foram ${s.count} vendas, somando ${SalesSummary.money(s.revenue)}."
     }
 
     private fun runAction(a: JSONObject, problems: MutableList<String>): EveCard? {
@@ -307,6 +316,9 @@ ${calendarContext(now.toLocalDate())}
         private val PT_BR: Locale = Locale.forLanguageTag("pt-BR")
         private val HM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
         private val ISO_MIN: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
+
+        /** Enquanto o login não dá certo, dá para ver as telas com números inventados. */
+        const val SAMPLE_HINT = "Enquanto isso, dá para ligar \"Usar vendas de exemplo\" nas configurações para ver como fica."
 
         /** Acha o JSON na resposta, mesmo que a IA tenha colocado texto ou ``` em volta. */
         fun extractJson(raw: String): JSONObject? {

@@ -35,6 +35,8 @@ data class SalesSummary(
     val top: List<TopProduct>,
     /** true quando eram vendas demais e só as mais recentes foram somadas. */
     val partial: Boolean,
+    /** true quando são vendas de exemplo (inventadas), não as do Mercado Livre de verdade. */
+    val sample: Boolean = false,
 ) {
     val periodLabel: String
         get() = when {
@@ -46,6 +48,7 @@ data class SalesSummary(
 
     /** Texto para a IA responder a pergunta. Só números e produtos, sem compradores. */
     fun forAi(): String = buildString {
+        if (sample) appendLine("ATENÇÃO: SÃO VENDAS DE EXEMPLO, INVENTADAS, NÃO AS VENDAS REAIS. Diga isso na resposta.")
         appendLine("DADOS DO MERCADO LIVRE (vendas pagas, ${periodLabel.lowercase()}, de ${from.format(ISO)} a ${to.format(ISO)}):")
         appendLine("Total: $count vendas, ${money(revenue)}." + if (count > 0) " Ticket médio ${money(revenue / count)}." else "")
         if (partial) appendLine("Atenção: eram vendas demais; somei só as $count mais recentes do período.")
@@ -68,7 +71,7 @@ data class SalesSummary(
         fun money(v: Double): String = NumberFormat.getCurrencyInstance(PT_BR).format(v).replace(' ', ' ')
 
         /** Soma as vendas por dia (ou por horário, se for um dia só) e acha os mais vendidos. */
-        fun of(orders: List<Order>, from: LocalDate, to: LocalDate, partial: Boolean): SalesSummary {
+        fun of(orders: List<Order>, from: LocalDate, to: LocalDate, partial: Boolean, sample: Boolean = false): SalesSummary {
             val days = ChronoUnit.DAYS.between(from, to).toInt() + 1
             val bars = when {
                 days == 1 -> (0 until 24 step 3).map { h ->
@@ -97,7 +100,7 @@ data class SalesSummary(
                 .map { (title, list) -> TopProduct(title, list.sumOf { it.first.quantity }, list.sumOf { it.second }) }
                 .sortedWith(compareByDescending<TopProduct> { it.quantity }.thenByDescending { it.revenue })
                 .take(5)
-            return SalesSummary(from, to, bars, orders.size, orders.sumOf { it.total }, top, partial)
+            return SalesSummary(from, to, bars, orders.size, orders.sumOf { it.total }, top, partial, sample)
         }
     }
 }
@@ -178,7 +181,7 @@ class McpSalesSource(private val client: McpClient, private val zone: ZoneId = Z
     }
 }
 
-/** Vendas de exemplo, só para os testes no emulador (nada de dados reais). */
+/** Vendas de exemplo (inventadas): para os testes no emulador e para ver as telas antes do login. */
 class DemoSalesSource : SalesSource {
     override suspend fun summary(from: LocalDate, to: LocalDate): SalesSummary {
         delay(500)
@@ -199,6 +202,6 @@ class DemoSalesSource : SalesSource {
             }
             d = d.plusDays(1)
         }
-        return SalesSummary.of(orders, from, to, partial = false)
+        return SalesSummary.of(orders, from, to, partial = false, sample = true)
     }
 }

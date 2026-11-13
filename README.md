@@ -65,6 +65,10 @@ O endereço e o login ficam só no celular. O acesso se renova sozinho; se o ser
 é só tocar em "Entrar no Mercado Livre" outra vez. Para a IA vão só números resumidos (totais por dia e
 produtos mais vendidos), nunca nome ou apelido de comprador.
 
+Para ver as telas antes de entrar, ligue **Usar vendas de exemplo** na mesma seção. A Eve mostra
+números inventados, com o aviso "Vendas de exemplo (não são reais)" no cartão, e diz que são de
+exemplo quando fala. Desligue para voltar às vendas reais.
+
 ## Para quem for mexer no código
 
 - Kotlin + Jetpack Compose, `minSdk 26` (Android 8).

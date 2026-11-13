@@ -17,10 +17,11 @@ class DemoProvider : AiProvider {
         val question = last.lowercase()
         val today = LocalDate.now()
         return when {
-            last.startsWith("DADOS DO MERCADO LIVRE") -> {
+            "DADOS DO MERCADO LIVRE" in last -> {
                 val total = Regex("""Total: (.+?)\.(?: Ticket|\n|$)""").find(last)?.groupValues?.get(1) ?: "algumas vendas"
                 val top = Regex("""1\) \d+ un\. ([^(]+)\(""").find(last)?.groupValues?.get(1)?.trim()
-                val fala = "Nos últimos 7 dias foram $total." + (top?.let { " O que mais saiu foi $it." } ?: "")
+                val sample = if ("VENDAS DE EXEMPLO" in last) "São vendas de exemplo: n" else "N"
+                val fala = "${sample}os últimos 7 dias foram $total." + (top?.let { " O que mais saiu foi $it." } ?: "")
                 JSONObject().put("fala", fala).put("humor", "animada").put("acoes", org.json.JSONArray()).toString()
             }
             "venda" in question || "vendi" in question ->

@@ -84,9 +84,14 @@ class EveSettings(context: Context) {
     fun mlAuth(): McpAuth? = mlServerUrl.takeIf { it.startsWith("https://") }
         ?.let { runCatching { McpAuth(it, mlAuthStore) }.getOrNull() }
 
+    /** Mostra vendas inventadas, para ver as telas antes de entrar no servidor. */
+    var mlSampleData: Boolean
+        get() = prefs.getBoolean("ml_sample_data", false)
+        set(value) = prefs.edit().putBoolean("ml_sample_data", value).apply()
+
     /** De onde a Eve tira as vendas. Null = Mercado Livre ainda não conectado. */
     fun createSalesSource(): SalesSource? {
-        if (provider == ProviderId.DEMO) return DemoSalesSource()
+        if (provider == ProviderId.DEMO || mlSampleData) return DemoSalesSource()
         val auth = mlAuth() ?: return null
         return McpSalesSource(McpClient(mlServerUrl) { rejected -> auth.token(rejected) })
     }
