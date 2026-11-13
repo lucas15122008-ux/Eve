@@ -1,7 +1,11 @@
 package app.eve.assistente.assistant
 
 import android.content.Context
+import app.eve.assistente.mercadolivre.DemoSalesSource
+import app.eve.assistente.mercadolivre.McpClient
 import app.eve.assistente.mercadolivre.McpException
+import app.eve.assistente.mercadolivre.McpLoginNeeded
+import app.eve.assistente.mercadolivre.MlPending
 import app.eve.assistente.mercadolivre.SalesSource
 import app.eve.assistente.mercadolivre.SalesSummary
 import org.json.JSONArray
@@ -22,6 +26,7 @@ sealed class EveCard {
     data class Reminders(val items: List<AgendaItem>) : EveCard()
     data class Done(val title: String, val item: AgendaItem) : EveCard()
     data class Sales(val summary: SalesSummary) : EveCard()
+    data class Pending(val pending: MlPending) : EveCard()
 }
 
 /**
@@ -71,6 +76,7 @@ triste para notícias ruins, confusa quando não entendeu o pedido, piscadinha q
 - {"tipo": "mostrar_agenda", "dia": "AAAA-MM-DD"}
 - {"tipo": "mostrar_lembretes"}
 - {"tipo": "mostrar_vendas", "desde": "AAAA-MM-DD", "ate": "AAAA-MM-DD"}
+- {"tipo": "mostrar_pendencias"}
 
 Regras:
 - Lembrete é um aviso no celular ("me lembra de..."). Evento é um compromisso na agenda ("marca uma reunião...").
@@ -81,7 +87,8 @@ Regras:
 - Para cancelar, use o id que aparece na lista de lembretes abaixo.
 - Nunca invente compromissos que não estão nos dados.
 - Mercado Livre (loja JR Auto Peças): para perguntas sobre vendas, faturamento, quantos pedidos ou produtos mais vendidos, use "mostrar_vendas" com o período (as duas datas incluídas; "hoje" = desde e até hoje; "essa semana" = últimos 7 dias; no máximo 90 dias). Nessa hora diga só algo curto como "Vou ver suas vendas"; os números chegam numa próxima mensagem e aí você responde.
-- Nunca invente números de vendas.
+- Para perguntas sem resposta, mensagens de compradores, reclamações ou "o que tem para fazer no Mercado Livre", use "mostrar_pendencias" e diga só algo curto como "Vou olhar". Os números chegam numa próxima mensagem.
+- Nunca invente números de vendas, perguntas, mensagens ou reclamações.
 ${salesStatus()}
 
 Agora é ${weekdayDate(now.toLocalDate())}, ${now.format(HM)} (${now.format(ISO_MIN)}).
@@ -92,9 +99,11 @@ ${calendarContext(now.toLocalDate())}
         """.trimIndent()
     }
 
-    private fun salesStatus(): String =
-        if (salesSource() == null) "- O Mercado Livre ainda não está conectado na Eve: se pedirem vendas, use \"mostrar_vendas\" mesmo assim (a Eve explica como conectar)."
-        else "- O Mercado Livre está conectado."
+    private fun salesStatus(): String = when (salesSource()) {
+        is DemoSalesSource -> "- O Mercado Livre está no modo de exemplo: os números são inventados. Sempre diga que são de exemplo."
+        null -> "- O Mercado Livre ainda não está conectado na Eve: se pedirem vendas ou pendências, use a ação mesmo assim (a Eve explica como conectar)."
+        else -> "- O Mercado Livre está conectado."
+    }
 
     private fun remindersContext(): String {
         val list = reminders.all()
@@ -131,20 +140,22 @@ ${calendarContext(now.toLocalDate())}
         val problems = mutableListOf<String>()
         var card: EveCard? = null
         var followUp: String? = null
-        var salesFailed = false
+        var dataFailed = false
         val actions = json.optJSONArray("acoes") ?: JSONArray()
         for (i in 0 until actions.length()) {
             val a = actions.optJSONObject(i) ?: continue
             try {
-                if (a.optString("tipo") == "mostrar_vendas") {
+                val tipo = a.optString("tipo")
+                if (tipo == "mostrar_vendas" || tipo == "mostrar_pendencias") {
                     if (!allowData || followUp != null) continue
-                    val summary = sales(a, problems)
-                    if (summary == null) {
-                        salesFailed = true
+                    val data = if (tipo == "mostrar_vendas") sales(a, problems)?.let { EveCard.Sales(it) to it.forAi() }
+                    else fetch(problems) { it.pending() }?.let { EveCard.Pending(it) to it.forAi() }
+                    if (data == null) {
+                        dataFailed = true
                         continue
                     }
-                    card = EveCard.Sales(summary)
-                    followUp = summary.forAi()
+                    card = data.first
+                    followUp = data.second
                 } else {
                     runAction(a, problems)?.let { card = it }
                 }
@@ -156,8 +167,8 @@ ${calendarContext(now.toLocalDate())}
         }
 
         val speech = buildString {
-            // Se as vendas não vieram, o "vou ver suas vendas" da IA não faz sentido: fala só o problema.
-            if (!salesFailed) append(cleanText(json.optString("fala")))
+            // Se os dados não vieram, o "vou ver suas vendas" da IA não faz sentido: fala só o problema.
+            if (!dataFailed) append(cleanText(json.optString("fala")))
             problems.distinct().forEach { append(" ").append(it) }
         }.trim().ifEmpty { "Pronto." }
         val mood = json.optString("humor").takeIf { it.isNotBlank() }
@@ -166,19 +177,27 @@ ${calendarContext(now.toLocalDate())}
 
     /** Busca as vendas do período pedido no Mercado Livre. */
     private suspend fun sales(a: JSONObject, problems: MutableList<String>): SalesSummary? {
-        val source = salesSource()
-        if (source == null) {
-            problems += "O Mercado Livre ainda não está conectado. Coloque o endereço do servidor JR Mercado Livre nas configurações da Eve."
-            return null
-        }
         val today = LocalDate.now(zone)
         fun day(key: String) = runCatching { LocalDate.parse(a.optString(key).take(10)) }.getOrNull()
         val to = (day("ate") ?: today).coerceAtMost(today)
         val from = (day("desde") ?: to).coerceAtMost(to).coerceAtLeast(to.minusDays(89))
+        return fetch(problems) { it.summary(from, to) }
+    }
+
+    /** Busca dados no Mercado Livre; se não der, explica o porquê em [problems] e devolve null. */
+    private suspend fun <T> fetch(problems: MutableList<String>, block: suspend (SalesSource) -> T): T? {
+        val source = salesSource()
+        if (source == null) {
+            problems += "O Mercado Livre ainda não está conectado. Coloque o endereço do servidor JR Mercado Livre nas configurações da Eve. $SAMPLE_HINT"
+            return null
+        }
         return try {
-            source.summary(from, to)
+            block(source)
+        } catch (e: McpLoginNeeded) {
+            problems += (e.message ?: McpClient.NEED_LOGIN) + " " + SAMPLE_HINT
+            null
         } catch (e: McpException) {
-            problems += e.message ?: "Não consegui ver as vendas agora."
+            problems += e.message ?: "Não consegui ver o Mercado Livre agora."
             null
         } catch (e: java.io.IOException) {
             problems += "Não consegui falar com o servidor do Mercado Livre. Confira a internet e o endereço nas configurações."
@@ -193,8 +212,30 @@ ${calendarContext(now.toLocalDate())}
             s.from == s.to -> "No dia ${s.periodLabel}"
             else -> "De ${s.periodLabel}"
         }
-        if (s.count == 0) return "$period não teve nenhuma venda paga."
-        return "$period foram ${s.count} vendas, somando ${SalesSummary.money(s.revenue)}."
+        val prefix = if (s.sample) "Vendas de exemplo, não são reais. " else ""
+        if (s.count == 0) return "$prefix$period não teve nenhuma venda paga."
+        return "$prefix$period foram ${s.count} vendas, somando ${SalesSummary.money(s.revenue)}."
+    }
+
+    /** Se a IA falhar na segunda rodada, a Eve fala as pendências ela mesma. */
+    fun fallbackPendingSpeech(p: MlPending): String {
+        fun n(v: Int?, one: String, many: String) = when (v) {
+            null -> null
+            0 -> "nenhuma $one"
+            1 -> "1 $one"
+            else -> "$v $many"
+        }
+        val parts = listOfNotNull(
+            n(p.questions, "pergunta sem resposta", "perguntas sem resposta"),
+            n(p.messages, "mensagem não lida", "mensagens não lidas"),
+            n(p.claims, "reclamação aberta", "reclamações abertas"),
+        )
+        val prefix = if (p.sample) "Pendências de exemplo, não são reais. " else ""
+        if (parts.isEmpty()) return prefix + "Não consegui ler as pendências do Mercado Livre agora."
+        return prefix + "No Mercado Livre você tem " + when (parts.size) {
+            1 -> parts[0]
+            else -> parts.dropLast(1).joinToString(", ") + " e " + parts.last()
+        } + "."
     }
 
     private fun runAction(a: JSONObject, problems: MutableList<String>): EveCard? {
@@ -307,6 +348,9 @@ ${calendarContext(now.toLocalDate())}
         private val PT_BR: Locale = Locale.forLanguageTag("pt-BR")
         private val HM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
         private val ISO_MIN: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
+
+        /** Enquanto o login não dá certo, dá para ver as telas com números inventados. */
+        const val SAMPLE_HINT = "Enquanto isso, dá para ligar \"Usar vendas de exemplo\" nas configurações para ver como fica."
 
         /** Acha o JSON na resposta, mesmo que a IA tenha colocado texto ou ``` em volta. */
         fun extractJson(raw: String): JSONObject? {

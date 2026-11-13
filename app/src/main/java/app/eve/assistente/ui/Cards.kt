@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.eve.assistente.assistant.AgendaItem
 import app.eve.assistente.assistant.EveCard
+import app.eve.assistente.mercadolivre.MlPending
 import app.eve.assistente.mercadolivre.SalesBar
 import app.eve.assistente.mercadolivre.SalesSummary
 
@@ -57,6 +59,8 @@ private val TextMain = Color(0xFFE8F1F5)
 private val TextSoft = Color(0xFF8FA3B3)
 /** A cor da Eve, usada nas barras do gráfico (passa no teste de contraste com o fundo do cartão). */
 private val Violet = Color(0xFF7C5CFF)
+/** Cor de "atenção": sempre junto de um ícone e de um texto, nunca sozinha. */
+private val Warning = Color(0xFFFAB219)
 
 /** Desenha a tela personalizada que a Eve pediu para mostrar. */
 @Composable
@@ -90,6 +94,7 @@ fun EveCardView(card: EveCard, onClose: () -> Unit, modifier: Modifier = Modifie
                 ItemRow(card.item)
             }
             is EveCard.Sales -> SalesCard(card.summary)
+            is EveCard.Pending -> PendingCard(card.pending)
         }
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = onClose, modifier = Modifier.align(Alignment.End)) {
@@ -148,7 +153,7 @@ private fun ItemRow(item: AgendaItem) {
 /** Vendas do Mercado Livre: total em destaque, gráfico de barras e os mais vendidos. */
 @Composable
 private fun SalesCard(s: SalesSummary) {
-    Header(s.periodLabel, "Vendas no Mercado Livre")
+    Header(s.periodLabel, if (s.sample) "Vendas de exemplo (não são reais)" else "Vendas no Mercado Livre")
     Text(SalesSummary.money(s.revenue), color = TextMain, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
     val ticket = if (s.count > 0) " · ticket médio ${SalesSummary.money(s.revenue / s.count)}" else ""
     Text("${s.count} ${if (s.count == 1) "venda" else "vendas"}$ticket", color = TextSoft, fontSize = 14.sp)
@@ -182,6 +187,55 @@ private fun SalesCard(s: SalesSummary) {
                     Text(SalesSummary.money(p.revenue), color = TextSoft, fontSize = 13.sp)
                 }
             }
+        }
+    }
+}
+
+/** O que está esperando no Mercado Livre: um número grande por linha, com o que ele é embaixo. */
+@Composable
+private fun PendingCard(p: MlPending) {
+    val allClear = p.questions == 0 && p.messages == 0 && p.claims == 0
+    Header(
+        if (allClear) "Tudo em dia" else "Para fazer agora",
+        if (p.sample) "Pendências de exemplo (não são reais)" else "Mercado Livre",
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PendingRow(
+            p.questions, "pergunta sem resposta", "perguntas sem resposta",
+            detail = listOfNotNull(
+                p.oldestLabel(),
+                p.questionItems.takeIf { it.isNotEmpty() }?.joinToString(", "),
+            ).joinToString(" · ").takeIf { (p.questions ?: 0) > 0 && it.isNotEmpty() },
+        )
+        PendingRow(p.messages, "mensagem não lida", "mensagens não lidas")
+        PendingRow(p.claims, "reclamação aberta", "reclamações abertas", warn = (p.claims ?: 0) > 0)
+    }
+}
+
+@Composable
+private fun PendingRow(count: Int?, one: String, many: String, detail: String? = null, warn: Boolean = false) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Line)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            count?.toString() ?: "?",
+            color = if ((count ?: 0) > 0) TextMain else TextSoft,
+            fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.width(52.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(if (count == 1) one else many, color = TextMain, fontSize = 16.sp)
+            val sub = if (count == null) "não consegui ler agora" else detail
+            if (sub != null) Text(sub, color = TextSoft, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        if (warn) {
+            Spacer(Modifier.width(8.dp))
+            Icon(Icons.Filled.Warning, contentDescription = "Precisa de atenção", tint = Warning, modifier = Modifier.size(20.dp))
         }
     }
 }

@@ -77,7 +77,7 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     private fun salesSource(): SalesSource? {
-        val key = listOf(settings.provider.key, settings.mlServerUrl).joinToString("|")
+        val key = listOf(settings.provider.key, settings.mlServerUrl, settings.mlSampleData).joinToString("|")
         salesCache?.let { if (it.first == key) return it.second }
         return settings.createSalesSource().also { salesCache = key to it }
     }
@@ -209,6 +209,7 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         }
         val speech = second?.speech
             ?: (first.card as? EveCard.Sales)?.let { brain.fallbackSalesSpeech(it.summary) }
+            ?: (first.card as? EveCard.Pending)?.let { brain.fallbackPendingSpeech(it.pending) }
             ?: first.speech
         val raw = second?.rawForHistory
             ?: JSONObject().put("fala", speech).put("acoes", JSONArray()).toString()
@@ -313,8 +314,10 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveSettings(
         provider: ProviderId, apiKey: String, model: String, name: String, speechRate: Float, mlUrl: String,
+        mlSample: Boolean,
     ) {
         settings.save(provider, apiKey, model)
+        settings.mlSampleData = mlSample
         settings.userName = name
         settings.speechRate = speechRate
         if (mlUrl.trim() != settings.mlServerUrl) {

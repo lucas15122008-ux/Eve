@@ -73,7 +73,11 @@ class MiniHttp(private val handler: (method: String, path: String, headers: Map<
     fun stop() { socket.close(); pool.shutdownNow() }
 }
 
-class FakeMcp(val sse: Boolean, val token: String = "segredo", @Volatile var expireOnce: Boolean = false, val toolError: Boolean = false) {
+class FakeMcp(
+    val sse: Boolean, val token: String = "segredo", @Volatile var expireOnce: Boolean = false, val toolError: Boolean = false,
+    /** Outras ferramentas: recebe os argumentos e devolve o texto, ou null para dar erro. */
+    val tools: Map<String, (JSONObject) -> String?> = emptyMap(),
+) {
     // Login OAuth de mentira (igual ao do servidor de verdade: /register, /authorize, /token com PKCE).
     @Volatile var valid: Set<String> = setOf(token)
     val refreshes = AtomicInteger()
@@ -158,12 +162,18 @@ class FakeMcp(val sse: Boolean, val token: String = "segredo", @Volatile var exp
                 calls.incrementAndGet()
                 Thread.sleep(50)
                 val p = body.getJSONObject("params")
-                assertEquals("ml_vendas", p.getString("name"))
                 val a = p.getJSONObject("arguments")
-                if (toolError) {
+                val custom = tools[p.getString("name")]
+                if (custom != null) {
+                    val text = custom(a)
+                    if (text == null) JSONObject().put("isError", true)
+                        .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", "parâmetro inválido")))
+                    else JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text)))
+                } else if (toolError) {
                     JSONObject().put("isError", true)
                         .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", "token do ML expirou")))
                 } else {
+                    assertEquals("ml_vendas", p.getString("name"))
                     val from = OffsetDateTime.parse(a.getString("desde"))
                     val to = OffsetDateTime.parse(a.getString("ate"))
                     val match = orders.filter {
@@ -340,6 +350,57 @@ class McpTest {
         val s = runBlocking { DemoSalesSource().summary(LocalDate.now().minusDays(6), LocalDate.now()) }
         println(s.forAi())
         assertTrue(s.count > 0)
+        // Vendas de exemplo nunca podem parecer reais: a IA é avisada.
+        assertTrue(s.sample)
+        assertTrue(s.forAi().startsWith("ATENÇÃO: SÃO VENDAS DE EXEMPLO"))
         assertEquals("R$ 1.234,50", SalesSummary.money(1234.5))
+    }
+    @Test fun pendingCountsWithoutBuyerData() {
+        val askedClaims = mutableListOf<JSONObject>()
+        val fake = FakeMcp(false, tools = mapOf(
+            "ml_perguntas" to { a ->
+                assertEquals("UNANSWERED", a.optString("status"))
+                JSONObject().put("total", 2).put("perguntas", JSONArray()
+                    .put(JSONObject().put("id", 1).put("status", "UNANSWERED").put("data", "2026-11-13T08:00:00.000-04:00")
+                        .put("texto", "serve no gol? meu zap 11 99999").put("item", JSONObject().put("id", "MLB1").put("titulo", "Radiador Gol"))
+                        .put("comprador", JSONObject().put("nickname", "COMPRADOR_SECRETO")))
+                    .put(JSONObject().put("id", 2).put("status", "UNANSWERED").put("data", "2026-11-13T10:30:00.000-04:00")
+                        .put("texto", "tem nota?").put("titulo", "Bomba d'água Palio"))).toString()
+            },
+            "ml_mensagens_nao_lidas" to { _ -> """[{"pack_id": 5, "comprador": "COMPRADOR_SECRETO", "texto": "cadê meu pedido"}]""" },
+            // Este servidor não aceita o filtro "status": a Eve tem que tentar de novo sem ele.
+            "ml_reclamacoes" to { a -> askedClaims += a; if (a.has("status")) null else """{"reclamacoes": []}""" },
+        ))
+        try {
+            val p = runBlocking { McpSalesSource(McpClient(fake.url, "segredo"), sp).pending() }
+            assertEquals(2, p.questions)
+            assertEquals(1, p.messages)
+            assertEquals(0, p.claims)
+            assertEquals(2, askedClaims.size)
+            assertEquals(LocalDateTime.of(2026, 11, 13, 9, 0), p.oldestQuestion) // 08:00 -04:00 = 09:00 em Brasília
+            assertEquals(listOf("Radiador Gol", "Bomba d'água Palio"), p.questionItems)
+            val ai = p.forAi(LocalDateTime.of(2026, 11, 13, 12, 0))
+            println(ai)
+            assertTrue("a mais antiga há 3 horas" in ai)
+            assertFalse("COMPRADOR" in ai, "dados do comprador não podem ir para a IA")
+            assertFalse("zap" in ai || "nota?" in ai || "pedido" in ai, "o texto do comprador não vai para a IA")
+        } finally { fake.stop() }
+    }
+
+    @Test fun pendingParserShapes() {
+        assertEquals(3, PendingParser.parse("""{"total": 3, "results": [{}]}""").count)
+        assertEquals(2, PendingParser.parse("""{"conversas": [{}, {}]}""").count)
+        assertEquals(1, PendingParser.parse("""[{"status": "UNANSWERED"}, {"status": "ANSWERED"}]""", "UNANSWERED").count)
+        assertEquals(0, PendingParser.parse("Nenhuma pergunta sem resposta.").count)
+        assertNull(PendingParser.parse("algo que eu não entendo").count)
+        assertEquals("3 horas", MlPending.ago(LocalDateTime.of(2026, 1, 1, 9, 0), LocalDateTime.of(2026, 1, 1, 12, 10)))
+        assertEquals("30 horas", MlPending.ago(LocalDateTime.of(2026, 1, 1, 9, 0), LocalDateTime.of(2026, 1, 2, 15, 0)))
+        assertEquals("2 dias", MlPending.ago(LocalDateTime.of(2026, 1, 1, 9, 0), LocalDateTime.of(2026, 1, 3, 9, 0)))
+    }
+
+    @Test fun demoPendingIsSample() {
+        val p = runBlocking { DemoSalesSource().pending() }
+        assertTrue(p.sample)
+        assertTrue(p.forAi().startsWith("ATENÇÃO: SÃO PENDÊNCIAS DE EXEMPLO"))
     }
 }

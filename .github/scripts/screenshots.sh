@@ -45,6 +45,9 @@ rotate 1
 shot 14-deitado-vendas 6
 rotate 0
 sleep 4
+# Perguntas, mensagens e reclamações (de exemplo).
+ask "tem pergunta pra responder no mercado livre"
+shot 17-pendencias 8
 # Configurações, com os campos do Mercado Livre.
 adb shell input tap 996 212
 shot 15-configuracoes 3

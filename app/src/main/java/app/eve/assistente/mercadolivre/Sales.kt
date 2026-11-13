@@ -35,6 +35,8 @@ data class SalesSummary(
     val top: List<TopProduct>,
     /** true quando eram vendas demais e só as mais recentes foram somadas. */
     val partial: Boolean,
+    /** true quando são vendas de exemplo (inventadas), não as do Mercado Livre de verdade. */
+    val sample: Boolean = false,
 ) {
     val periodLabel: String
         get() = when {
@@ -46,6 +48,7 @@ data class SalesSummary(
 
     /** Texto para a IA responder a pergunta. Só números e produtos, sem compradores. */
     fun forAi(): String = buildString {
+        if (sample) appendLine("ATENÇÃO: SÃO VENDAS DE EXEMPLO, INVENTADAS, NÃO AS VENDAS REAIS. Diga isso na resposta.")
         appendLine("DADOS DO MERCADO LIVRE (vendas pagas, ${periodLabel.lowercase()}, de ${from.format(ISO)} a ${to.format(ISO)}):")
         appendLine("Total: $count vendas, ${money(revenue)}." + if (count > 0) " Ticket médio ${money(revenue / count)}." else "")
         if (partial) appendLine("Atenção: eram vendas demais; somei só as $count mais recentes do período.")
@@ -68,7 +71,7 @@ data class SalesSummary(
         fun money(v: Double): String = NumberFormat.getCurrencyInstance(PT_BR).format(v).replace(' ', ' ')
 
         /** Soma as vendas por dia (ou por horário, se for um dia só) e acha os mais vendidos. */
-        fun of(orders: List<Order>, from: LocalDate, to: LocalDate, partial: Boolean): SalesSummary {
+        fun of(orders: List<Order>, from: LocalDate, to: LocalDate, partial: Boolean, sample: Boolean = false): SalesSummary {
             val days = ChronoUnit.DAYS.between(from, to).toInt() + 1
             val bars = when {
                 days == 1 -> (0 until 24 step 3).map { h ->
@@ -97,14 +100,17 @@ data class SalesSummary(
                 .map { (title, list) -> TopProduct(title, list.sumOf { it.first.quantity }, list.sumOf { it.second }) }
                 .sortedWith(compareByDescending<TopProduct> { it.quantity }.thenByDescending { it.revenue })
                 .take(5)
-            return SalesSummary(from, to, bars, orders.size, orders.sumOf { it.total }, top, partial)
+            return SalesSummary(from, to, bars, orders.size, orders.sumOf { it.total }, top, partial, sample)
         }
     }
 }
 
-/** De onde vêm as vendas: o servidor de verdade ou os dados de exemplo dos testes. */
+/** De onde vêm os dados do Mercado Livre: o servidor de verdade ou os dados de exemplo. */
 interface SalesSource {
     suspend fun summary(from: LocalDate, to: LocalDate): SalesSummary
+
+    /** Perguntas sem resposta, mensagens não lidas e reclamações abertas. */
+    suspend fun pending(): MlPending
 }
 
 /** Vendas de verdade, pelo servidor MCP "JR Mercado Livre" (ferramenta ml_vendas). */
@@ -151,6 +157,39 @@ class McpSalesSource(private val client: McpClient, private val zone: ZoneId = Z
         SalesSummary.of(orders.distinctBy { it.id }, from, to, partial)
     }
 
+    override suspend fun pending(): MlPending = coroutineScope {
+        val questions = async { tool("ml_perguntas", JSONObject().put("status", "UNANSWERED"))?.let { PendingParser.parse(it, "UNANSWERED") } }
+        val messages = async { tool("ml_mensagens_nao_lidas", JSONObject())?.let { PendingParser.parse(it) } }
+        val claims = async { tool("ml_reclamacoes", JSONObject().put("status", "opened"))?.let { PendingParser.parse(it, "opened") } }
+        val q = questions.await()
+        val m = messages.await()
+        val c = claims.await()
+        if (q?.count == null && m?.count == null && c?.count == null) {
+            throw McpException("Não consegui ler as perguntas, mensagens e reclamações do Mercado Livre agora. Tente de novo em instantes.")
+        }
+        val items = q?.items.orEmpty()
+        MlPending(
+            questions = q?.count,
+            oldestQuestion = items.mapNotNull { PendingParser.date(it, zone) }.minOrNull(),
+            questionItems = items.mapNotNull { PendingParser.title(it) }.distinct().take(3),
+            messages = m?.count,
+            claims = c?.count,
+        )
+    }
+
+    /**
+     * Chama uma ferramenta e devolve o texto, ou null se ela deu erro. Se o servidor recusar o
+     * filtro (ex.: "status"), tenta de novo sem nada. Falta de login sobe, para a Eve avisar.
+     */
+    private suspend fun tool(name: String, args: JSONObject): String? = try {
+        client.callTool(name, args)
+    } catch (e: McpLoginNeeded) {
+        throw e
+    } catch (e: McpException) {
+        if (args.length() == 0) null
+        else try { client.callTool(name, JSONObject()) } catch (e2: McpLoginNeeded) { throw e2 } catch (e2: McpException) { null }
+    }
+
     private fun parseOrders(json: JSONObject): List<Order> {
         val list = json.optJSONArray("vendas") ?: return emptyList()
         return (0 until list.length()).mapNotNull { i ->
@@ -178,7 +217,7 @@ class McpSalesSource(private val client: McpClient, private val zone: ZoneId = Z
     }
 }
 
-/** Vendas de exemplo, só para os testes no emulador (nada de dados reais). */
+/** Vendas de exemplo (inventadas): para os testes no emulador e para ver as telas antes do login. */
 class DemoSalesSource : SalesSource {
     override suspend fun summary(from: LocalDate, to: LocalDate): SalesSummary {
         delay(500)
@@ -199,6 +238,18 @@ class DemoSalesSource : SalesSource {
             }
             d = d.plusDays(1)
         }
-        return SalesSummary.of(orders, from, to, partial = false)
+        return SalesSummary.of(orders, from, to, partial = false, sample = true)
+    }
+
+    override suspend fun pending(): MlPending {
+        delay(500)
+        return MlPending(
+            questions = 3,
+            oldestQuestion = LocalDateTime.now().minusHours(2).minusMinutes(40),
+            questionItems = listOf("Radiador", "Bomba d'água"),
+            messages = 1,
+            claims = 0,
+            sample = true,
+        )
     }
 }

@@ -11,6 +11,8 @@ Assistente de IA pessoal para Android, por voz.
   que já sincroniza com o Google Agenda.
 - **Mercado Livre:** "quanto eu vendi essa semana?" ou "o que mais vendeu ontem?". A Eve busca as
   vendas no servidor JR Mercado Livre, mostra o total e um gráfico, e responde falando.
+  Também: "tem pergunta pra responder?" ou "alguma reclamação?". A Eve conta as perguntas sem resposta,
+  as mensagens não lidas e as reclamações abertas (só olha; responder continua sendo pelo app do ML).
 - **Telas personalizadas:** quando a Eve mostra a agenda, os lembretes ou as vendas, ela vai para o canto
   e a informação aparece no meio da tela.
 - A IA é "trocável": Google Gemini ou OpenRouter, escolhidos nas configurações.
@@ -64,6 +66,10 @@ fica no servidor, não no celular.
 O endereço e o login ficam só no celular. O acesso se renova sozinho; se o servidor pedir de novo,
 é só tocar em "Entrar no Mercado Livre" outra vez. Para a IA vão só números resumidos (totais por dia e
 produtos mais vendidos), nunca nome ou apelido de comprador.
+
+Para ver as telas antes de entrar, ligue **Usar vendas de exemplo** na mesma seção. A Eve mostra
+números inventados, com o aviso "Vendas de exemplo (não são reais)" no cartão, e diz que são de
+exemplo quando fala. Desligue para voltar às vendas reais.
 
 ## Para quem for mexer no código
 
