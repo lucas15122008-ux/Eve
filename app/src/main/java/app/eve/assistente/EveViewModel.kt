@@ -209,6 +209,7 @@ class EveViewModel(app: Application) : AndroidViewModel(app) {
         }
         val speech = second?.speech
             ?: (first.card as? EveCard.Sales)?.let { brain.fallbackSalesSpeech(it.summary) }
+            ?: (first.card as? EveCard.Pending)?.let { brain.fallbackPendingSpeech(it.pending) }
             ?: first.speech
         val raw = second?.rawForHistory
             ?: JSONObject().put("fala", speech).put("acoes", JSONArray()).toString()

@@ -105,9 +105,12 @@ data class SalesSummary(
     }
 }
 
-/** De onde vêm as vendas: o servidor de verdade ou os dados de exemplo dos testes. */
+/** De onde vêm os dados do Mercado Livre: o servidor de verdade ou os dados de exemplo. */
 interface SalesSource {
     suspend fun summary(from: LocalDate, to: LocalDate): SalesSummary
+
+    /** Perguntas sem resposta, mensagens não lidas e reclamações abertas. */
+    suspend fun pending(): MlPending
 }
 
 /** Vendas de verdade, pelo servidor MCP "JR Mercado Livre" (ferramenta ml_vendas). */
@@ -152,6 +155,39 @@ class McpSalesSource(private val client: McpClient, private val zone: ZoneId = Z
             partial = offset >= MAX_ORDERS
         }
         SalesSummary.of(orders.distinctBy { it.id }, from, to, partial)
+    }
+
+    override suspend fun pending(): MlPending = coroutineScope {
+        val questions = async { tool("ml_perguntas", JSONObject().put("status", "UNANSWERED"))?.let { PendingParser.parse(it, "UNANSWERED") } }
+        val messages = async { tool("ml_mensagens_nao_lidas", JSONObject())?.let { PendingParser.parse(it) } }
+        val claims = async { tool("ml_reclamacoes", JSONObject().put("status", "opened"))?.let { PendingParser.parse(it, "opened") } }
+        val q = questions.await()
+        val m = messages.await()
+        val c = claims.await()
+        if (q?.count == null && m?.count == null && c?.count == null) {
+            throw McpException("Não consegui ler as perguntas, mensagens e reclamações do Mercado Livre agora. Tente de novo em instantes.")
+        }
+        val items = q?.items.orEmpty()
+        MlPending(
+            questions = q?.count,
+            oldestQuestion = items.mapNotNull { PendingParser.date(it, zone) }.minOrNull(),
+            questionItems = items.mapNotNull { PendingParser.title(it) }.distinct().take(3),
+            messages = m?.count,
+            claims = c?.count,
+        )
+    }
+
+    /**
+     * Chama uma ferramenta e devolve o texto, ou null se ela deu erro. Se o servidor recusar o
+     * filtro (ex.: "status"), tenta de novo sem nada. Falta de login sobe, para a Eve avisar.
+     */
+    private suspend fun tool(name: String, args: JSONObject): String? = try {
+        client.callTool(name, args)
+    } catch (e: McpLoginNeeded) {
+        throw e
+    } catch (e: McpException) {
+        if (args.length() == 0) null
+        else try { client.callTool(name, JSONObject()) } catch (e2: McpLoginNeeded) { throw e2 } catch (e2: McpException) { null }
     }
 
     private fun parseOrders(json: JSONObject): List<Order> {
@@ -203,5 +239,17 @@ class DemoSalesSource : SalesSource {
             d = d.plusDays(1)
         }
         return SalesSummary.of(orders, from, to, partial = false, sample = true)
+    }
+
+    override suspend fun pending(): MlPending {
+        delay(500)
+        return MlPending(
+            questions = 3,
+            oldestQuestion = LocalDateTime.now().minusHours(2).minusMinutes(40),
+            questionItems = listOf("Radiador", "Bomba d'água"),
+            messages = 1,
+            claims = 0,
+            sample = true,
+        )
     }
 }

@@ -6,7 +6,8 @@ import java.time.LocalDate
 
 /**
  * IA de mentira, só para os testes automáticos no emulador (não precisa de internet nem de chave).
- * Agenda -> mostra a agenda de hoje. Vendas -> mostra as vendas de exemplo da semana. Senão, só responde.
+ * Agenda -> mostra a agenda de hoje. Vendas -> mostra as vendas de exemplo da semana.
+ * Perguntas/mensagens/reclamações -> mostra as pendências de exemplo. Senão, só responde.
  */
 class DemoProvider : AiProvider {
     override val displayName = "Demonstração"
@@ -24,6 +25,15 @@ class DemoProvider : AiProvider {
                 val fala = "${sample}os últimos 7 dias foram $total." + (top?.let { " O que mais saiu foi $it." } ?: "")
                 JSONObject().put("fala", fala).put("humor", "animada").put("acoes", org.json.JSONArray()).toString()
             }
+            "PENDÊNCIAS DO MERCADO LIVRE" in last -> {
+                val q = Regex("""Perguntas sem resposta: (\d+)""").find(last)?.groupValues?.get(1) ?: "algumas"
+                val m = Regex("""não lidas: (\d+)""").find(last)?.groupValues?.get(1) ?: "algumas"
+                val sample = if ("DE EXEMPLO" in last) "São pendências de exemplo: v" else "V"
+                val fala = "${sample}ocê tem $q perguntas sem resposta e $m mensagem para ler. Nenhuma reclamação aberta."
+                JSONObject().put("fala", fala).put("humor", "preocupada").put("acoes", org.json.JSONArray()).toString()
+            }
+            "pergunta" in question || "pendência" in question || "reclama" in question || "mensage" in question ->
+                """{"fala": "Vou olhar.", "acoes": [{"tipo": "mostrar_pendencias"}]}"""
             "venda" in question || "vendi" in question ->
                 """{"fala": "Vou ver suas vendas.", "acoes": [{"tipo": "mostrar_vendas", "desde": "${today.minusDays(6)}", "ate": "$today"}]}"""
             "agenda" in question ->
