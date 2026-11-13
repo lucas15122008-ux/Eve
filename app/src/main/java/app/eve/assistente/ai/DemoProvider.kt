@@ -36,6 +36,23 @@ class DemoProvider : AiProvider {
                 """{"fala": "Vou olhar.", "acoes": [{"tipo": "mostrar_pendencias"}]}"""
             "venda" in question || "vendi" in question ->
                 """{"fala": "Vou ver suas vendas.", "acoes": [{"tipo": "mostrar_vendas", "desde": "${today.minusDays(6)}", "ate": "$today"}]}"""
+            // Lembretes e compromissos: criar, alterar e excluir (o id vem das listas nas instruções).
+            "me lembra" in question ->
+                """{"fala": "Combinado, vou te lembrar.", "acoes": [{"tipo": "criar_lembrete", "quando": "${java.time.LocalDateTime.now().plusHours(2).withSecond(0).withNano(0)}", "texto": "Tirar o lixo"}]}"""
+            "muda o lembrete" in question -> {
+                val id = Regex("""- id (\d+): .*Tirar o lixo""").find(systemPrompt)?.groupValues?.get(1) ?: "0"
+                """{"fala": "Pronto, mudei o lembrete.", "humor": "piscadinha", "acoes": [{"tipo": "alterar_lembrete", "id": $id, "quando": "${today.plusDays(1)}T07:00", "texto": "Tirar o lixo antes de sair"}]}"""
+            }
+            "marca uma reuni" in question ->
+                """{"fala": "Marquei a reunião para amanhã às 15.", "acoes": [{"tipo": "criar_evento", "titulo": "Reunião com fornecedor", "inicio": "${today.plusDays(1)}T15:00", "fim": "${today.plusDays(1)}T16:00"}]}"""
+            "muda a reuni" in question -> {
+                val id = Regex("""- id (\d+): [^\n]*Reunião com fornecedor""").find(systemPrompt)?.groupValues?.get(1) ?: "0"
+                """{"fala": "Mudei a reunião para as 16 horas.", "acoes": [{"tipo": "alterar_evento", "id": $id, "inicio": "${today.plusDays(1)}T16:00", "local": "Loja"}]}"""
+            }
+            "desmarca a reuni" in question -> {
+                val id = Regex("""- id (\d+): [^\n]*Reunião com fornecedor""").find(systemPrompt)?.groupValues?.get(1) ?: "0"
+                """{"fala": "Pronto, desmarquei a reunião.", "acoes": [{"tipo": "excluir_evento", "id": $id}]}"""
+            }
             "agenda" in question ->
                 """{"fala": "Aqui está a sua agenda de hoje.", "acoes": [{"tipo": "mostrar_agenda", "dia": "$today"}]}"""
             else ->

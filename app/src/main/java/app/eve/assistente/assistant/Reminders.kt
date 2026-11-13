@@ -44,6 +44,19 @@ class ReminderStore(context: Context) {
         return r
     }
 
+    /** Muda a hora e/ou o texto de um lembrete. Devolve o lembrete como ficou, ou null se não achar. */
+    @Synchronized
+    fun update(id: Int, atMillis: Long?, text: String?): Reminder? {
+        val list = all().toMutableList()
+        val i = list.indexOfFirst { it.id == id }
+        if (i < 0) return null
+        val old = list[i]
+        val r = old.copy(atMillis = atMillis ?: old.atMillis, text = text?.takeIf { it.isNotBlank() } ?: old.text)
+        list[i] = r
+        save(list)
+        return r
+    }
+
     @Synchronized
     fun remove(id: Int): Reminder? {
         val list = all().toMutableList()
